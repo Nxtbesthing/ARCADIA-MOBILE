@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ARCADIA MOBILE</title>
+    <meta
+      name="description"
+      content="ARCADIA MOBILE - Premium smartphones, tablets, gadgets, and professional repair services."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-inner">
+        <div class="brand-wrap">
+          <div class="brand-mark">A</div>
+          <div>
+            <p class="brand-name">ARCADIA</p>
+            <small>Premium Mobile Experience</small>
+          </div>
+        </div>
+
+        <nav class="main-nav" aria-label="Main navigation">
+          <a href="#home">Home</a>
+          <a href="#categories">Categories</a>
+          <a href="#products">Products</a>
+          <a href="#repairs">Repairs</a>
+          <a href="#contact">Contact</a>
+        </nav>
+
+        <div class="header-tools">
+          <div class="search-box">
+            <span>⌕</span>
+            <input type="text" placeholder="Search phones" aria-label="Search products" />
+          </div>
+          <button class="cart-btn" type="button" aria-label="View cart">
+            <span>🛒</span>
+            <span class="cart-count" id="cartCount">0</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="home">
+      <section class="hero-section">
+        <div class="container hero-grid">
+          <div class="hero-copy">
+            <p class="eyebrow">Trusted by tech lovers</p>
+            <h1>Smart phones. Fast repairs. Great deals.</h1>
+            <p class="hero-text">
+              Discover premium Apple devices, Samsung, Redmi, Tecno, Infinix, and other gadgets.
+              We sell, repair, and upgrade your favorite tech with care.
+            </p>
+
+            <div class="hero-actions">
+              <a class="primary-btn" href="#products">Shop now</a>
+              <a class="secondary-btn" href="#repairs">Book repair</a>
+            </div>
+
+            <ul class="hero-stats">
+              <li><strong>500+</strong><span>Devices sold</span></li>
+              <li><strong>4.9/5</strong><span>Customer rating</span></li>
+              <li><strong>24/7</strong><span>Support</span></li>
+            </ul>
+          </div>
+
+          <div class="hero-visual" aria-label="Featured phone offer">
+            <div class="device-card big-device">
+              <div class="device-screen">
+                <span>📱</span>
+              </div>
+            </div>
+            <div class="deal-badge">
+              <p>Hot deal</p>
+              <strong>iPhone 15 Pro</strong>
+              <span>₦ 145,000</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="categories-section" id="categories">
+        <div class="container">
+          <div class="section-heading">
+            <p>Browse by brand</p>
+            <h2>Shop your favorite brands</h2>
+          </div>
+
+          <div class="category-buttons" aria-label="Product filters">
+            <button class="filter-btn active" type="button" data-category="all">All</button>
+            <button class="filter-btn" type="button" data-category="apple">Apple</button>
+            <button class="filter-btn" type="button" data-category="samsung">Samsung</button>
+            <button class="filter-btn" type="button" data-category="redmi">Redmi</button>
+            <button class="filter-btn" type="button" data-category="tecno">Tecno</button>
+            <button class="filter-btn" type="button" data-category="infinix">Infinix</button>
+            <button class="filter-btn" type="button" data-category="gadgets">Gadgets</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="products-section" id="products">
+        <div class="container">
+          <div class="section-heading split-heading">
+            <div>
+              <p>Featured products</p>
+              <h2>Best devices for your lifestyle</h2>
+            </div>
+            <a href="#contact">Need help choosing?</a>
+          </div>
+
+          <div class="product-grid" id="productGrid"></div>
+        </div>
+      </section>
+
+      <section class="services-section" id="repairs">
+        <div class="container">
+          <div class="section-heading center">
+            <p>We repair more than phones</p>
+            <h2>Professional repair services</h2>
+          </div>
+
+          <div class="service-grid">
+            <article class="service-card">
+              <div class="icon-wrap">📱</div>
+              <h3>Screen replacement</h3>
+              <p>Fast, reliable screen and digitizer repairs for most mobile brands.</p>
+            </article>
+            <article class="service-card">
+              <div class="icon-wrap">🔋</div>
+              <h3>Battery fixes</h3>
+              <p>Battery replacement and charging port diagnostics for long-term performance.</p>
+            </article>
+            <article class="service-card">
+              <div class="icon-wrap">🧰</div>
+              <h3>General gadget repair</h3>
+              <p>We fix tablets, smartwatches, speakers, and other everyday gadgets.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="benefits-section">
+        <div class="container benefits-grid">
+          <div class="benefit-copy">
+            <p class="eyebrow">Why choose us</p>
+            <h2>Your trusted store for smarter tech</h2>
+            <ul>
+              <li>Original and certified devices</li>
+              <li>Flexible payment options</li>
+              <li>Same-day repairs for many phones</li>
+              <li>Friendly customer support</li>
+            </ul>
+          </div>
+
+          <div class="benefit-panel">
+            <div class="mini-stat">
+              <strong>98%</strong>
+              <span>Happy customers</span>
+            </div>
+            <div class="mini-stat">
+              <strong>7 days</strong>
+              <span>Warranty support</span>
+            </div>
+            <div class="mini-stat">
+              <strong>Same day</strong>
+              <span>Quick repairs</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <aside class="cart-panel" id="cartPanel" aria-label="Shopping cart">
+      <div class="cart-header">
+        <h3>Your cart</h3>
+        <button type="button" class="close-cart" aria-label="Close cart">×</button>
+      </div>
+
+      <div class="cart-items" id="cartItems">
+        <p class="empty-cart">Your cart is empty.</p>
+      </div>
+
+      <div class="cart-footer">
+        <div class="total-row">
+          <span>Total</span>
+          <strong id="cartTotal">₦ 0</strong>
+        </div>
+        <button class="checkout-btn" type="button">Checkout</button>
+      </div>
+    </aside>
+
+    <footer class="site-footer" id="contact">
+      <div class="container footer-inner">
+        <div>
+          <h3>ARCADIA MOBILE</h3>
+          <p>Premium phones, repairs, and gadgets for your lifestyle.</p>
+        </div>
+        <div>
+          <h4>Contact</h4>
+          <p>📍 Jos, Plateau State, Nigeria</p>
+          <p>📞 +234 800 000 0000</p>
+          <p>✉️ sales@arcadiamobile.store</p>
+        </div>
+      </div>
+    </footer>
+
+    <script src="script.js"></script>
+  </body>
+</html>
