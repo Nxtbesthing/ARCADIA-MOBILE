@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ARCADIA MOBILE</title>
+    <title>ARCADIA MOBILE | Premium Tech & Repairs</title>
     <meta
       name="description"
-      content="ARCADIA MOBILE - Premium smartphones, tablets, gadgets, and professional repair services."
+      content="ARCADIA MOBILE offers premium phones, accessories, and professional repair services in Nigeria."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -15,72 +15,129 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
+    <script src="https://js.paystack.co/v1/inline.js"></script>
   </head>
   <body>
     <header class="site-header">
       <div class="container header-inner">
-        <div class="brand-wrap">
-          <div class="brand-mark">A</div>
-          <div>
+        <div class="brand-wrap" aria-label="Arcadia Mobile brand">
+          <img class="brand-logo" src="arcadia-logo.png.jpeg" alt="Arcadia Mobile" />
+          <div class="brand-copy">
             <p class="brand-name">ARCADIA</p>
-            <small>Premium Mobile Experience</small>
+            <span>MOBILE</span>
           </div>
         </div>
 
         <nav class="main-nav" aria-label="Main navigation">
-          <a href="#home">Home</a>
-          <a href="#categories">Categories</a>
-          <a href="#products">Products</a>
-          <a href="#repairs">Repairs</a>
-          <a href="#contact">Contact</a>
+          <a href="#home">HOME</a>
+          <a href="#products">PHONES</a>
+          <a href="#accessories">ACCESSORIES</a>
+          <a href="#repairs">REPAIRS</a>
+          <a href="#deals">DEALS</a>
+          <a href="#about">ABOUT</a>
+          <a href="#contact">CONTACT</a>
         </nav>
 
         <div class="header-tools">
-          <div class="search-box">
-            <span>⌕</span>
-            <input type="text" placeholder="Search phones" aria-label="Search products" />
-          </div>
-          <button class="cart-btn" type="button" aria-label="View cart">
-            <span>🛒</span>
+          <label class="search-box" aria-label="Search products">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M10.5 3a7.5 7.5 0 015.94 12.56l4.36 4.35 1.41-1.41-4.35-4.36A7.5 7.5 0 1110.5 3zm0 2a5.5 5.5 0 100 11 5.5 5.5 0 000-11z"/>
+            </svg>
+            <input type="search" placeholder="Search phones, chargers, repairs..." aria-label="Search products" id="searchInput" />
+          </label>
+
+          <button type="button" class="icon-btn account-btn" aria-label="Open my account">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 12a4 4 0 100-8 4 4 0 000 8zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5z"/>
+            </svg>
+          </button>
+
+          <button type="button" class="icon-btn admin-btn" aria-label="Open admin dashboard" title="Admin dashboard">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 2l8 3v6c0 5.25-3.42 9.55-8 11-4.58-1.45-8-5.75-8-11V5l8-3zm0 2.15L6 6.4v4.6c0 3.93 2.42 7.27 6 8.63 3.58-1.36 6-4.7 6-8.63V6.4l-6-2.25zm-1 4.35h2v4h-2v-4zm0 5h2v2h-2v-2z"/>
+            </svg>
+          </button>
+
+          <button type="button" class="icon-btn wishlist-btn" aria-label="Open wishlist">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 20.25l-1.45-1.32C5.4 14.36 2 11.28 2 7.5A4.5 4.5 0 016.5 3c1.74 0 3.41.81 4.5 2.09A6.13 6.13 0 0115.5 3 4.5 4.5 0 0120 7.5c0 3.78-3.4 6.86-8.55 11.43L12 20.25z"/>
+            </svg>
+            <span class="wishlist-count" id="wishlistCount">0</span>
+          </button>
+
+          <button type="button" class="cart-btn" aria-label="View cart">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 18a2 2 0 110 4 2 2 0 010-4zm10 0a2 2 0 110 4 2 2 0 010-4zM6.2 6h14.5l-1.7 7.2a2 2 0 01-2 1.6H9.1a2 2 0 01-2-1.6L5.5 4.5H2V2h4l.8 3.2z"/>
+            </svg>
             <span class="cart-count" id="cartCount">0</span>
+          </button>
+
+          <button type="button" class="menu-toggle" aria-label="Toggle menu" aria-expanded="false">
+            <span></span>
+            <span></span>
+            <span></span>
           </button>
         </div>
       </div>
     </header>
 
+    <nav class="mobile-menu" id="mobileMenu" aria-label="Mobile navigation">
+      <a href="#home">HOME</a>
+      <a href="#products">PHONES</a>
+      <a href="#accessories">ACCESSORIES</a>
+      <a href="#repairs">REPAIRS</a>
+      <a href="#deals">DEALS</a>
+      <a href="#about">ABOUT</a>
+      <a href="#contact">CONTACT</a>
+    </nav>
+
+    <div id="productDetailPage" class="product-detail-page hidden" aria-live="polite"></div>
+
+    <main id="wishlistPage" class="wishlist-page hidden" aria-live="polite"></main>
+
+    <main id="accountPage" class="account-page hidden" aria-live="polite"></main>
+
+    <main id="checkoutPage" class="checkout-page hidden" aria-live="polite"></main>
+
+    <main id="repairPage" class="repair-booking-page hidden" aria-live="polite"></main>
+
+    <main id="adminPage" class="admin-page hidden" aria-live="polite"></main>
+
     <main id="home">
       <section class="hero-section">
         <div class="container hero-grid">
           <div class="hero-copy">
-            <p class="eyebrow">Trusted by tech lovers</p>
-            <h1>Smart phones. Fast repairs. Great deals.</h1>
+            <p class="eyebrow">PREMIUM TECH. PROFESSIONAL CARE.</p>
+            <h1>Smart devices, expert service, and honest pricing.</h1>
             <p class="hero-text">
-              Discover premium Apple devices, Samsung, Redmi, Tecno, Infinix, and other gadgets.
-              We sell, repair, and upgrade your favorite tech with care.
+              Arcadia Mobile supplies premium phones and accessories while our specialists keep
+              your devices running at their best through trusted repair and support services.
             </p>
 
             <div class="hero-actions">
-              <a class="primary-btn" href="#products">Shop now</a>
-              <a class="secondary-btn" href="#repairs">Book repair</a>
+              <a class="primary-btn" href="#products">SHOP PHONES</a>
+              <a class="secondary-btn" href="#repair-booking">BOOK A REPAIR</a>
             </div>
 
-            <ul class="hero-stats">
-              <li><strong>500+</strong><span>Devices sold</span></li>
-              <li><strong>4.9/5</strong><span>Customer rating</span></li>
-              <li><strong>24/7</strong><span>Support</span></li>
+            <ul class="hero-meta">
+              <li><strong>500+</strong><span>devices delivered</span></li>
+              <li><strong>4.9/5</strong><span>customer rating</span></li>
+              <li><strong>24/7</strong><span>support desk</span></li>
             </ul>
           </div>
 
-          <div class="hero-visual" aria-label="Featured phone offer">
-            <div class="device-card big-device">
-              <div class="device-screen">
-                <span>📱</span>
-              </div>
+          <div class="hero-visual" aria-label="Featured product image">
+            <div class="device-visual">
+              <img
+                src="https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80"
+                alt="Premium smartphone in a minimal studio setup"
+              />
             </div>
-            <div class="deal-badge">
-              <p>Hot deal</p>
+
+            <div class="floating-offer">
+              <span class="floating-tag">NEW DROP</span>
               <strong>iPhone 15 Pro</strong>
-              <span>₦ 145,000</span>
+              <p>From ₦650,000</p>
             </div>
           </div>
         </div>
@@ -89,18 +146,20 @@
       <section class="categories-section" id="categories">
         <div class="container">
           <div class="section-heading">
-            <p>Browse by brand</p>
-            <h2>Shop your favorite brands</h2>
+            <p>SHOP BY CATEGORY</p>
+            <h2>Built for everyday performance.</h2>
           </div>
 
-          <div class="category-buttons" aria-label="Product filters">
+          <div class="category-grid" aria-label="Product categories">
             <button class="filter-btn active" type="button" data-category="all">All</button>
-            <button class="filter-btn" type="button" data-category="apple">Apple</button>
+            <button class="filter-btn" type="button" data-category="iphone">iPhones</button>
             <button class="filter-btn" type="button" data-category="samsung">Samsung</button>
-            <button class="filter-btn" type="button" data-category="redmi">Redmi</button>
-            <button class="filter-btn" type="button" data-category="tecno">Tecno</button>
-            <button class="filter-btn" type="button" data-category="infinix">Infinix</button>
-            <button class="filter-btn" type="button" data-category="gadgets">Gadgets</button>
+            <button class="filter-btn" type="button" data-category="android">Android Phones</button>
+            <button class="filter-btn" type="button" data-category="tablets">Tablets</button>
+            <button class="filter-btn" type="button" data-category="accessories">Accessories</button>
+            <button class="filter-btn" type="button" data-category="audio">Audio</button>
+            <button class="filter-btn" type="button" data-category="smartwatches">Smartwatches</button>
+            <button class="filter-btn" type="button" data-category="repairs">Repairs</button>
           </div>
         </div>
       </section>
@@ -109,8 +168,8 @@
         <div class="container">
           <div class="section-heading split-heading">
             <div>
-              <p>Featured products</p>
-              <h2>Best devices for your lifestyle</h2>
+              <p>FEATURED PRODUCTS</p>
+              <h2>Premium tech, carefully selected.</h2>
             </div>
             <a href="#contact">Need help choosing?</a>
           </div>
@@ -119,59 +178,97 @@
         </div>
       </section>
 
-      <section class="services-section" id="repairs">
+      <section class="deals-section" id="deals">
         <div class="container">
-          <div class="section-heading center">
-            <p>We repair more than phones</p>
-            <h2>Professional repair services</h2>
+          <div class="section-heading">
+            <p>ARCADIA DEALS</p>
+            <h2>Smart pricing, premium value.</h2>
           </div>
 
-          <div class="service-grid">
-            <article class="service-card">
-              <div class="icon-wrap">📱</div>
-              <h3>Screen replacement</h3>
-              <p>Fast, reliable screen and digitizer repairs for most mobile brands.</p>
-            </article>
-            <article class="service-card">
-              <div class="icon-wrap">🔋</div>
-              <h3>Battery fixes</h3>
-              <p>Battery replacement and charging port diagnostics for long-term performance.</p>
-            </article>
-            <article class="service-card">
-              <div class="icon-wrap">🧰</div>
-              <h3>General gadget repair</h3>
-              <p>We fix tablets, smartwatches, speakers, and other everyday gadgets.</p>
-            </article>
+          <div class="deal-grid" id="dealGrid"></div>
+        </div>
+      </section>
+
+      <section class="accessories-section" id="accessories">
+        <div class="container accessories-grid">
+          <div class="accessory-copy">
+            <p class="eyebrow">ACCESSORIES</p>
+            <h2>Complete your setup with the essentials.</h2>
+            <ul>
+              <li>Phone cases</li>
+              <li>Screen protectors</li>
+              <li>Chargers</li>
+              <li>USB cables</li>
+              <li>Lightning cables</li>
+              <li>Type-C cables</li>
+              <li>Power banks</li>
+              <li>Earbuds</li>
+              <li>Headphones</li>
+              <li>Car chargers</li>
+              <li>Phone holders</li>
+              <li>Smartwatches</li>
+            </ul>
+          </div>
+
+          <div class="accessory-showcase">
+            <div class="mini-panel panel-large">
+              <span>ESSENTIALS</span>
+              <strong>Fast charging. Better protection.</strong>
+            </div>
+            <div class="mini-panel panel-small">
+              <span>PROTECTION</span>
+              <strong>Glass + case bundles</strong>
+            </div>
+            <div class="mini-panel panel-small">
+              <span>CONNECTIVITY</span>
+              <strong>Cables for every device</strong>
+            </div>
           </div>
         </div>
       </section>
 
-      <section class="benefits-section">
-        <div class="container benefits-grid">
-          <div class="benefit-copy">
-            <p class="eyebrow">Why choose us</p>
-            <h2>Your trusted store for smarter tech</h2>
-            <ul>
-              <li>Original and certified devices</li>
-              <li>Flexible payment options</li>
-              <li>Same-day repairs for many phones</li>
-              <li>Friendly customer support</li>
-            </ul>
+      <section class="repair-section" id="repairs">
+        <div class="container repair-layout">
+          <div class="repair-visual">
+            <div class="repair-device">
+              <div class="repair-screen"></div>
+            </div>
           </div>
 
-          <div class="benefit-panel">
-            <div class="mini-stat">
-              <strong>98%</strong>
-              <span>Happy customers</span>
-            </div>
-            <div class="mini-stat">
-              <strong>7 days</strong>
-              <span>Warranty support</span>
-            </div>
-            <div class="mini-stat">
-              <strong>Same day</strong>
-              <span>Quick repairs</span>
-            </div>
+          <div class="repair-copy">
+            <p class="eyebrow">DEVICE BROKEN?</p>
+            <h2>LET ARCADIA FIX IT.</h2>
+            <ul class="repair-list">
+              <li>Screen Replacement</li>
+              <li>Battery Replacement</li>
+              <li>Charging Port</li>
+              <li>Camera Repair</li>
+              <li>Speaker Repair</li>
+              <li>Software Issues</li>
+              <li>Water Damage</li>
+              <li>Laptop Repair</li>
+              <li>Tablet Repair</li>
+            </ul>
+            <a class="primary-btn" href="#repair-booking">BOOK A REPAIR</a>
+            <a class="repair-track-link" href="#repair-tracking">TRACK A REPAIR</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="why-section" id="about">
+        <div class="container why-layout">
+          <div class="why-copy">
+            <p class="eyebrow">WHY ARCADIA</p>
+            <h2>Confidence in every interaction.</h2>
+          </div>
+
+          <div class="why-grid">
+            <div class="why-item"><strong>GENUINE PRODUCTS</strong></div>
+            <div class="why-item"><strong>QUALITY REPAIRS</strong></div>
+            <div class="why-item"><strong>WARRANTY SUPPORT</strong></div>
+            <div class="why-item"><strong>CUSTOMER SERVICE</strong></div>
+            <div class="why-item"><strong>SECURE PAYMENTS</strong></div>
+            <div class="why-item"><strong>FAST DELIVERY</strong></div>
           </div>
         </div>
       </section>
@@ -179,7 +276,7 @@
 
     <aside class="cart-panel" id="cartPanel" aria-label="Shopping cart">
       <div class="cart-header">
-        <h3>Your cart</h3>
+        <h3>YOUR CART</h3>
         <button type="button" class="close-cart" aria-label="Close cart">×</button>
       </div>
 
@@ -188,29 +285,65 @@
       </div>
 
       <div class="cart-footer">
+        <div class="summary-row">
+          <span>Subtotal</span>
+          <strong id="cartSubtotal">₦ 0</strong>
+        </div>
+        <div class="summary-row">
+          <span>Delivery</span>
+          <strong id="cartDelivery">₦ 0</strong>
+        </div>
         <div class="total-row">
           <span>Total</span>
           <strong id="cartTotal">₦ 0</strong>
         </div>
-        <button class="checkout-btn" type="button">Checkout</button>
+        <button class="checkout-btn" id="proceedToCheckout" type="button">PROCEED TO CHECKOUT</button>
       </div>
     </aside>
 
     <footer class="site-footer" id="contact">
-      <div class="container footer-inner">
-        <div>
+      <div class="container footer-grid">
+        <div class="footer-brand">
           <h3>ARCADIA MOBILE</h3>
-          <p>Premium phones, repairs, and gadgets for your lifestyle.</p>
+          <p>Premium devices and expert care for the way you live and work.</p>
         </div>
-        <div>
-          <h4>Contact</h4>
-          <p>📍 Jos, Plateau State, Nigeria</p>
-          <p>📞 +234 800 000 0000</p>
-          <p>✉️ sales@arcadiamobile.store</p>
+
+        <div class="footer-links">
+          <h4>Shop</h4>
+          <a href="#products">Phones</a>
+          <a href="#accessories">Accessories</a>
+          <a href="#repairs">Repairs</a>
+          <a href="#deals">Deals</a>
         </div>
+
+        <div class="footer-links">
+          <h4>Customer Service</h4>
+          <a href="#contact">Contact</a>
+          <a href="#contact">FAQs</a>
+          <a href="#contact">Shipping</a>
+          <a href="#contact">Returns</a>
+          <a href="#contact">Warranty</a>
+        </div>
+
+        <div class="footer-links">
+          <h4>Follow Us</h4>
+          <a href="#contact">Instagram</a>
+          <a href="#contact">Facebook</a>
+          <a href="#contact">X</a>
+        </div>
+
+        <div class="footer-links location-block">
+          <h4>Location</h4>
+          <p>Jos, Plateau State, Nigeria</p>
+        </div>
+      </div>
+
+      <div class="container footer-bottom">
+        <span>© 2026 Arcadia Mobile</span>
       </div>
     </footer>
 
+    <script src="supabase-config.js"></script>
     <script src="script.js"></script>
   </body>
 </html>
