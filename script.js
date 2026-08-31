@@ -265,6 +265,9 @@ const ADMIN_INACTIVITY_LIMIT = 2 * 60 * 1000;
 let adminUnlocked = sessionStorage.getItem("arcadia-admin-unlocked") === "true";
 let adminInactivityTimer;
 
+const appLoader = document.getElementById("appLoader");
+const localBusinessSchema = document.getElementById("localBusinessSchema");
+const productSchema = document.getElementById("productSchema");
 const productGrid = document.getElementById("productGrid");
 const dealGrid = document.getElementById("dealGrid");
 const filterButtons = document.querySelectorAll(".filter-btn");
@@ -304,6 +307,35 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function getOptimizedImageUrl(url, width = 900, quality = 80) {
+  if (!url || typeof url !== "string") return "";
+
+  try {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.hostname.includes("images.unsplash.com")) {
+      parsedUrl.searchParams.set("auto", "format");
+      parsedUrl.searchParams.set("fit", "crop");
+      parsedUrl.searchParams.set("q", String(quality));
+      parsedUrl.searchParams.set("w", String(width));
+      return parsedUrl.toString();
+    }
+  } catch (error) {
+    return url;
+  }
+
+  return url;
+}
+
+function createResponsiveImageMarkup(src, alt, { width = 800, height = 600, loading = "lazy", fetchPriority = "", sizes = "" } = {}) {
+  const safeAlt = escapeHtml(alt || "Product image");
+  const normalizedSrc = getOptimizedImageUrl(src, width);
+  const fetchPriorityAttr = fetchPriority ? ` fetchpriority="${fetchPriority}"` : "";
+  const sizesAttr = sizes ? ` sizes="${sizes}"` : "";
+  const effectiveHeight = height || Math.round(width * 0.75);
+
+  return `<img src="${normalizedSrc}" alt="${safeAlt}" width="${width}" height="${effectiveHeight}" loading="${loading}" decoding="async"${fetchPriorityAttr}${sizesAttr} />`;
 }
 
 function validateCustomerFields(values) {
@@ -507,6 +539,79 @@ function getFilteredProducts() {
   });
 }
 
+function updateSeoSchema() {
+  if (!localBusinessSchema || !productSchema) return;
+
+  const localBusiness = {
+    "@context": "https://schema.org",
+    "@type": "LocalBusiness",
+    name: "Arcadia Mobile",
+    image: "arcadia-logo.png.jpeg",
+    description: "Phone store and repair shop in Jos, Plateau State, offering iPhone, Samsung, accessories, and device repair services.",
+    areaServed: [
+      { "@type": "City", name: "Jos" },
+      { "@type": "State", name: "Plateau State" },
+      { "@type": "Country", name: "Nigeria" }
+    ],
+    address: {
+      "@type": "PostalAddress",
+      addressLocality: "Jos",
+      addressRegion: "Plateau State",
+      addressCountry: "NG"
+    },
+    priceRange: "₦₦",
+    sameAs: ["https://arcadiamobile.com.ng"],
+    url: "https://arcadiamobile.com.ng"
+  };
+
+  const productEntries = products.slice(0, 12).map((product) => {
+    const price = Number(product.price || 0);
+    const stock = Number(product.stock || 0);
+
+    return {
+      "@type": "Product",
+      name: product.name,
+      brand: {
+        "@type": "Brand",
+        name: product.brand || "Arcadia Mobile"
+      },
+      category: product.category || "Electronics",
+      image: Array.isArray(product.images) && product.images.length ? product.images : ["arcadia-logo.png.jpeg"],
+      description: product.description || `Buy ${product.name} in Jos, Plateau State from Arcadia Mobile.`,
+      sku: product.sku || `${product.id}`,
+      offers: {
+        "@type": "Offer",
+        priceCurrency: "NGN",
+        price: Number.isFinite(price) ? price : 0,
+        availability: stock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+        url: "https://arcadiamobile.com.ng"
+      },
+      aggregateRating: product.rating
+        ? {
+            "@type": "AggregateRating",
+            ratingValue: Number(product.rating),
+            reviewCount: Number(product.reviews || 0)
+          }
+        : undefined
+    };
+  });
+
+  localBusinessSchema.textContent = JSON.stringify(localBusiness);
+  productSchema.textContent = JSON.stringify({
+    "@context": "https://schema.org",
+    "@graph": [{
+      "@type": "WebSite",
+      name: "Arcadia Mobile",
+      url: "https://arcadiamobile.com.ng",
+      potentialAction: {
+        "@type": "SearchAction",
+        target: "https://arcadiamobile.com.ng/?q={search_term_string}",
+        "query-input": "required name=search_term_string"
+      }
+    }, localBusiness, ...productEntries]
+  });
+}
+
 function renderDeals() {
   const deals = products
     .filter((product) => product.oldPrice)
@@ -515,7 +620,7 @@ function renderDeals() {
       (product) => `
         <article class="deal-card">
           <div class="deal-image">
-            <img src="${product.images[0]}" alt="${product.name}" />
+            ${createResponsiveImageMarkup(product.images[0], product.name, { width: 560, height: 420, loading: "lazy" })}
           </div>
           <div class="deal-body">
             <span class="deal-brand">${product.brand}</span>
@@ -555,7 +660,7 @@ function renderProducts() {
             <button class="wishlist-toggle ${wishlist.includes(product.id) ? "active" : ""}" type="button" aria-label="${wishlist.includes(product.id) ? "Remove" : "Add"} ${product.name} ${wishlist.includes(product.id) ? "from" : "to"} wishlist" data-id="${product.id}">
               ${wishlist.includes(product.id) ? "♥" : "♡"}
             </button>
-            <img src="${product.images[0]}" alt="${product.name}" />
+            ${createResponsiveImageMarkup(product.images[0], product.name, { width: 600, height: 420, loading: "lazy" })}
             <span class="product-badge">${product.discount}% OFF</span>
           </div>
 
@@ -582,6 +687,8 @@ function renderProducts() {
       `
     )
     .join("");
+
+  updateSeoSchema();
 
   document.querySelectorAll(".product-card").forEach((card) => {
     card.addEventListener("click", (event) => {
@@ -1218,7 +1325,7 @@ function renderWishlistPage() {
         ? '<div class="wishlist-empty"><h2>Your wishlist is empty.</h2><p>Save products here when you find something you love.</p><a class="primary-btn" href="#products">BROWSE PRODUCTS</a></div>'
         : `<div class="wishlist-list">${savedProducts.map((product) => `
           <article class="wishlist-item">
-            <img src="${product.images[0]}" alt="${product.name}" />
+            ${createResponsiveImageMarkup(product.images[0], product.name, { width: 160, height: 160, loading: "lazy" })}
             <div class="wishlist-item-info">
               <span class="product-brand">${product.brand}</span>
               <h2>${product.name}</h2>
@@ -1260,7 +1367,7 @@ function openProductDetail(productId) {
 function renderProductDetail(product) {
   const thumbs = (product.images || []).map((image, index) => `
     <button class="thumb-btn ${index === 0 ? "active" : ""}" type="button" data-image="${image}" aria-label="View image ${index + 1}">
-      <img src="${image}" alt="${product.name} view ${index + 1}" />
+      ${createResponsiveImageMarkup(image, `${product.name} view ${index + 1}`, { width: 180, height: 160, loading: "lazy" })}
     </button>
   `).join("");
 
@@ -1271,7 +1378,7 @@ function renderProductDetail(product) {
       <div class="detail-layout">
         <div class="detail-gallery">
           <div class="detail-main-image">
-            <img src="${product.images[0]}" alt="${product.name}" id="detailMainImage" />
+            ${createResponsiveImageMarkup(product.images[0], product.name, { width: 900, height: 700, loading: "eager" })}
           </div>
           <div class="detail-thumbs">${thumbs}</div>
         </div>
@@ -1729,6 +1836,14 @@ document.addEventListener("keydown", resetAdminInactivityTimer);
 document.addEventListener("touchstart", resetAdminInactivityTimer);
 document.addEventListener("scroll", resetAdminInactivityTimer, { passive: true });
 
+function hideAppLoader() {
+  if (!appLoader) return;
+  appLoader.classList.add("is-hidden");
+  window.setTimeout(() => {
+    appLoader.remove();
+  }, 260);
+}
+
 loadCartFromStorage();
 loadWishlistFromStorage();
 loadCustomerFromStorage();
@@ -1736,8 +1851,12 @@ loadSupabaseSession();
 loadLocalAdminProducts();
 renderDeals();
 renderProducts();
+updateSeoSchema();
 updateCart();
 updateWishlistCount();
 handleHashRouting();
 loadProductsFromSupabase();
 loadPaymentMethods();
+window.addEventListener("load", () => {
+  window.setTimeout(hideAppLoader, 180);
+});

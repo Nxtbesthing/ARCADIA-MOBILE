@@ -43,6 +43,8 @@ input {
 img {
   display: block;
   width: 100%;
+  max-width: 100%;
+  height: auto;
 }
 
 svg {
@@ -54,6 +56,53 @@ svg {
 .container {
   width: min(1180px, calc(100% - 32px));
   margin: 0 auto;
+}
+
+.app-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  background: rgba(245, 245, 245, 0.94);
+  backdrop-filter: blur(10px);
+  transition: opacity 0.24s ease, visibility 0.24s ease;
+}
+
+.app-loader.is-hidden {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.loader-ring {
+  display: grid;
+  place-items: center;
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.88);
+  border: 2px solid rgba(17, 17, 17, 0.08);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.08);
+  animation: pulseLoader 1.2s ease-in-out infinite;
+}
+
+.loader-logo {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+@keyframes pulseLoader {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.08);
+  }
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 24px 54px rgba(0, 0, 0, 0.12);
+  }
 }
 
 .site-header {

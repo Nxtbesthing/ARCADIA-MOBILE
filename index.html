@@ -3,25 +3,51 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ARCADIA MOBILE | Premium Tech & Repairs</title>
+    <title>Arcadia Mobile | Phone Store in Jos, Plateau State</title>
     <meta
       name="description"
-      content="ARCADIA MOBILE offers premium phones, accessories, and professional repair services in Nigeria."
+      content="Arcadia Mobile is a trusted phone store in Jos and Plateau State for iPhone, Samsung, repairs, and accessories. Shop premium devices, fast repair services, and quality tech accessories."
+    />
+    <meta
+      name="keywords"
+      content="phone store in Jos, phone repair in Jos, iPhone Jos, Samsung Jos, phone accessories Jos, phone repair Plateau State, phone shop Jos"
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Arcadia Mobile | Phone Store in Jos, Plateau State" />
+    <meta
+      property="og:description"
+      content="Arcadia Mobile offers iPhone, Samsung, accessories, and professional phone repair services in Jos, Plateau State."
+    />
+    <meta property="og:url" content="https://arcadiamobile.com.ng" />
+    <meta property="og:image" content="arcadia-logo.png.jpeg" />
+    <meta property="og:site_name" content="Arcadia Mobile" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Arcadia Mobile | Phone Store in Jos" />
+    <meta
+      name="twitter:description"
+      content="Official phone store and repair shop in Jos, Plateau State for iPhone, Samsung, accessories, and fast device fixes."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" as="style" />
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
-    <script src="https://js.paystack.co/v1/inline.js"></script>
+    <script src="https://js.paystack.co/v1/inline.js" defer></script>
   </head>
   <body>
+    <div id="appLoader" class="app-loader" aria-live="polite" aria-busy="true">
+      <div class="loader-ring" aria-hidden="true">
+        <img class="loader-logo" src="arcadia-logo.png.jpeg" alt="Arcadia Mobile" width="72" height="72" />
+      </div>
+    </div>
+
     <header class="site-header">
       <div class="container header-inner">
         <div class="brand-wrap" aria-label="Arcadia Mobile brand">
-          <img class="brand-logo" src="arcadia-logo.png.jpeg" alt="Arcadia Mobile" />
+          <img class="brand-logo" src="arcadia-logo.png.jpeg" alt="Arcadia Mobile" width="42" height="42" loading="eager" decoding="async" />
           <div class="brand-copy">
             <p class="brand-name">ARCADIA</p>
             <span>MOBILE</span>
@@ -131,6 +157,11 @@
               <img
                 src="https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80"
                 alt="Premium smartphone in a minimal studio setup"
+                width="900"
+                height="720"
+                loading="eager"
+                fetchpriority="high"
+                decoding="async"
               />
             </div>
 
@@ -300,6 +331,9 @@
         <button class="checkout-btn" id="proceedToCheckout" type="button">PROCEED TO CHECKOUT</button>
       </div>
     </aside>
+
+    <script type="application/ld+json" id="localBusinessSchema"></script>
+    <script type="application/ld+json" id="productSchema"></script>
 
     <footer class="site-footer" id="contact">
       <div class="container footer-grid">
