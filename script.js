@@ -295,8 +295,15 @@ const repairPage = document.getElementById("repairPage");
 const adminPage = document.getElementById("adminPage");
 const homeMain = document.getElementById("home");
 
-const supabaseConfig = window.ARCADIA_SUPABASE_CONFIG || {};
-const paymentConfig = window.ARCADIA_PAYMENT_CONFIG || {};
+const supabaseConfig = {
+  url: import.meta.env.VITE_SUPABASE_URL || "",
+  anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || ""
+};
+const paymentConfig = {
+  publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || "",
+  verifyEndpoint: import.meta.env.VITE_PAYSTACK_VERIFY_ENDPOINT || "",
+  methodsEndpoint: import.meta.env.VITE_PAYMENT_METHODS_ENDPOINT || ""
+};
 let publicPaymentMethods = [];
 let supabaseSession = null;
 
@@ -1857,6 +1864,4 @@ updateWishlistCount();
 handleHashRouting();
 loadProductsFromSupabase();
 loadPaymentMethods();
-window.addEventListener("load", () => {
-  window.setTimeout(hideAppLoader, 180);
-});
+window.setTimeout(hideAppLoader, 180);
