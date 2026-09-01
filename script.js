@@ -257,6 +257,8 @@ const DELIVERY_RATES = {
   "port harcourt": 5500
 };
 const ORDER_STATUSES = ["Pending", "Confirmed", "Processing", "Shipped", "Delivered", "Cancelled"];
+import { createClient } from "@supabase/supabase-js";
+
 const REPAIR_STATUSES = ["Requested", "Received", "Diagnosing", "Awaiting Approval", "Repairing", "Testing", "Ready", "Completed", "Cancelled"];
 const REPAIR_DEVICES = ["iPhone", "Samsung", "Tecno", "Infinix", "Xiaomi", "Laptop", "Tablet", "Other"];
 const REPAIR_PROBLEMS = ["Broken Screen", "Battery", "Charging", "Camera", "Speaker", "Software", "Water Damage", "Other"];
@@ -299,6 +301,17 @@ const supabaseConfig = {
   url: import.meta.env.VITE_SUPABASE_URL || "",
   anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || ""
 };
+
+const supabaseClient = supabaseConfig.url && supabaseConfig.anonKey
+  ? createClient(supabaseConfig.url, supabaseConfig.anonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true
+      }
+    })
+  : null;
+
 const paymentConfig = {
   publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || "",
   verifyEndpoint: import.meta.env.VITE_PAYSTACK_VERIFY_ENDPOINT || "",
