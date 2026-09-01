@@ -2638,6 +2638,7 @@ main {
 
   .brand-wrap {
     gap: 7px;
+    min-width: 0;
   }
 
   .brand-logo {
@@ -2647,7 +2648,19 @@ main {
   }
 
   .brand-copy {
-    display: none;
+    display: grid;
+    gap: 1px;
+    min-width: 0;
+  }
+
+  .brand-name {
+    font-size: 0.9rem;
+    white-space: nowrap;
+  }
+
+  .brand-copy span {
+    font-size: 0.58rem;
+    letter-spacing: 0.14em;
   }
 
   .icon-btn,
