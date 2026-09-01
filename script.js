@@ -1858,23 +1858,38 @@ document.addEventListener("scroll", resetAdminInactivityTimer, { passive: true }
 
 function hideAppLoader() {
   if (!appLoader) return;
+  if (appLoader.dataset.hidden === "true") return;
+  appLoader.dataset.hidden = "true";
   appLoader.classList.add("is-hidden");
   window.setTimeout(() => {
     appLoader.remove();
   }, 260);
 }
 
-loadCartFromStorage();
-loadWishlistFromStorage();
-loadCustomerFromStorage();
-loadSupabaseSession();
-loadLocalAdminProducts();
-renderDeals();
-renderProducts();
-updateSeoSchema();
-updateCart();
-updateWishlistCount();
-handleHashRouting();
-loadProductsFromSupabase();
-loadPaymentMethods();
-window.setTimeout(hideAppLoader, 180);
+function initializeApp() {
+  try {
+    loadCartFromStorage();
+    loadWishlistFromStorage();
+    loadCustomerFromStorage();
+    loadSupabaseSession();
+    loadLocalAdminProducts();
+    renderDeals();
+    renderProducts();
+    updateSeoSchema();
+    updateCart();
+    updateWishlistCount();
+    handleHashRouting();
+    loadProductsFromSupabase();
+    loadPaymentMethods();
+  } catch (error) {
+    console.error("App initialization failed:", error);
+  } finally {
+    window.setTimeout(hideAppLoader, 180);
+  }
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initializeApp, { once: true });
+} else {
+  initializeApp();
+}
