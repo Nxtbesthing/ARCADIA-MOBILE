@@ -245,6 +245,9 @@ const WISHLIST_STORAGE_KEY = "arcadia-wishlist";
 const CUSTOMER_STORAGE_KEY = "arcadia-customer";
 const ORDERS_STORAGE_KEY = "arcadia-orders";
 const REPAIRS_STORAGE_KEY = "arcadia-repairs";
+const AUTHORIZED_ADMIN_EMAIL = "oliverbuenyen3@gmail.com";
+const AUTHORIZED_ADMIN_PHONE = "08020376702";
+const AUTHORIZED_ADMIN_NAME = "Oliver Latnie Buenyen";
 const DELIVERY_RATES = {
   jos: 2000,
   "jos north": 2000,
@@ -356,6 +359,48 @@ function createResponsiveImageMarkup(src, alt, { width = 800, height = 600, load
   const effectiveHeight = height || Math.round(width * 0.75);
 
   return `<img src="${normalizedSrc}" alt="${safeAlt}" width="${width}" height="${effectiveHeight}" loading="${loading}" decoding="async"${fetchPriorityAttr}${sizesAttr} />`;
+}
+
+function normalizePhoneNumber(value) {
+  return String(value || "").replace(/\D+/g, "");
+}
+
+function normalizeEmailAddress(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isAuthorizedAdminAccount(account) {
+  if (!account || !account.email || !account.phone) return false;
+  const emailMatches = normalizeEmailAddress(account.email) === AUTHORIZED_ADMIN_EMAIL;
+  const phoneMatches = normalizePhoneNumber(account.phone) === normalizePhoneNumber(AUTHORIZED_ADMIN_PHONE);
+  const nameMatches = normalizeName(account.fullName || "") === normalizeName(AUTHORIZED_ADMIN_NAME);
+  return emailMatches && phoneMatches && nameMatches;
+}
+
+function normalizeName(value) {
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function syncAdminButtonState() {
+  if (!adminButton) return;
+  adminButton.hidden = !isAuthorizedAdminAccount(customer);
+  adminButton.setAttribute("aria-hidden", String(!isAuthorizedAdminAccount(customer)));
+}
+
+function enforceAuthorizedAdminAccess() {
+  const isAuthorized = isAuthorizedAdminAccount(customer);
+  if (!isAuthorized) {
+    adminUnlocked = false;
+    sessionStorage.removeItem("arcadia-admin-unlocked");
+    if (adminButton) {
+      adminButton.hidden = true;
+      adminButton.setAttribute("aria-hidden", "true");
+    }
+    if (adminPage) adminPage.classList.add("hidden");
+    if (window.location.hash.startsWith("#admin")) {
+      window.location.hash = "";
+    }
+  }
 }
 
 function validateCustomerFields(values) {
@@ -783,9 +828,11 @@ function loadCustomerFromStorage() {
   } catch (error) {
     customer = null;
   }
+  syncAdminButtonState();
 }
 
 function renderAccountPage() {
+  syncAdminButtonState();
   if (customer) {
     const orderCount = loadOrdersFromStorage().length;
     accountPage.innerHTML = `
@@ -811,6 +858,8 @@ function renderAccountPage() {
       supabaseSession = null;
       localStorage.removeItem(CUSTOMER_STORAGE_KEY);
       sessionStorage.removeItem("arcadia-supabase-session");
+      enforceAuthorizedAdminAccess();
+      syncAdminButtonState();
       renderAccountPage();
     });
     return;
@@ -861,6 +910,8 @@ function renderAccountPage() {
       phone: String(formData.get("phone")).trim()
     };
     saveCustomerToStorage();
+    enforceAuthorizedAdminAccess();
+    syncAdminButtonState();
     renderAccountPage();
   });
 
@@ -876,6 +927,8 @@ function renderAccountPage() {
     } catch (error) { message.textContent = error.message; return; }
     customer = { fullName: email.split("@")[0], email, phone: "Phone not added" };
     saveCustomerToStorage();
+    enforceAuthorizedAdminAccess();
+    syncAdminButtonState();
     renderAccountPage();
   });
 
@@ -1581,6 +1634,13 @@ function showRepairView() {
 
 function showAdminView(section = "overview") {
   resetPagePosition();
+  if (!isAuthorizedAdminAccount(customer)) {
+    window.location.hash = "";
+    if (adminButton) adminButton.hidden = true;
+    showHomeView();
+    return;
+  }
+
   if (!adminUnlocked) {
     showAdminAccessPrompt();
     return;
@@ -1835,6 +1895,11 @@ accountButton.addEventListener("click", () => {
 });
 
 adminButton.addEventListener("click", () => {
+  if (!isAuthorizedAdminAccount(customer)) {
+    window.location.hash = "";
+    showHomeView();
+    return;
+  }
   window.location.hash = "admin";
 });
 
@@ -1884,6 +1949,8 @@ function initializeApp() {
     loadCartFromStorage();
     loadWishlistFromStorage();
     loadCustomerFromStorage();
+    enforceAuthorizedAdminAccess();
+    syncAdminButtonState();
     loadSupabaseSession();
     loadLocalAdminProducts();
     renderDeals();
