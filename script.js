@@ -1504,7 +1504,12 @@ function renderProductDetail(product) {
   });
 }
 
+function resetPagePosition() {
+  window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+}
+
 function showHomeView() {
+  resetPagePosition();
   productDetailPage.classList.add("hidden");
   wishlistPage.classList.add("hidden");
   accountPage.classList.add("hidden");
@@ -1515,6 +1520,7 @@ function showHomeView() {
 }
 
 function showDetailView() {
+  resetPagePosition();
   productDetailPage.classList.remove("hidden");
   wishlistPage.classList.add("hidden");
   accountPage.classList.add("hidden");
@@ -1525,6 +1531,7 @@ function showDetailView() {
 }
 
 function showWishlistView() {
+  resetPagePosition();
   productDetailPage.classList.add("hidden");
   wishlistPage.classList.remove("hidden");
   accountPage.classList.add("hidden");
@@ -1536,6 +1543,7 @@ function showWishlistView() {
 }
 
 function showAccountView() {
+  resetPagePosition();
   productDetailPage.classList.add("hidden");
   wishlistPage.classList.add("hidden");
   accountPage.classList.remove("hidden");
@@ -1547,6 +1555,7 @@ function showAccountView() {
 }
 
 function showCheckoutView() {
+  resetPagePosition();
   productDetailPage.classList.add("hidden");
   wishlistPage.classList.add("hidden");
   accountPage.classList.add("hidden");
@@ -1559,6 +1568,7 @@ function showCheckoutView() {
 }
 
 function showRepairView() {
+  resetPagePosition();
   productDetailPage.classList.add("hidden");
   wishlistPage.classList.add("hidden");
   accountPage.classList.add("hidden");
@@ -1570,6 +1580,7 @@ function showRepairView() {
 }
 
 function showAdminView(section = "overview") {
+  resetPagePosition();
   if (!adminUnlocked) {
     showAdminAccessPrompt();
     return;
@@ -1638,6 +1649,7 @@ function showAdminAccessPrompt() {
 }
 
 function showRepairTrackingView() {
+  resetPagePosition();
   productDetailPage.classList.add("hidden");
   wishlistPage.classList.add("hidden");
   accountPage.classList.add("hidden");
@@ -1648,6 +1660,7 @@ function showRepairTrackingView() {
 }
 
 function handleHashRouting() {
+  resetPagePosition();
   const hash = window.location.hash;
   if (hash.startsWith("#admin")) {
     showAdminView(hash.split("/")[1] || "overview");
