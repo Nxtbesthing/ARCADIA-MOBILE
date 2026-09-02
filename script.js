@@ -474,27 +474,44 @@ async function fetchCurrentSupabaseUserProfile() {
   }
 }
 
-async function syncCurrentUserAdminStatus() {
-  if (!supabaseSession?.access_token) {
-    adminProfile = null;
-    if (customer) customer.isAdmin = false;
-    return false;
-  }
-
-  const profile = await fetchCurrentSupabaseUserProfile();
+function applySupabaseAdminState(profile) {
   const isAdmin = Boolean(profile && profile.is_admin === true);
 
   if (customer) {
     customer.isAdmin = isAdmin;
+    customer.fullName = customer.fullName || profile?.full_name || customer.email?.split("@")[0] || "User";
+    customer.phone = customer.phone || profile?.phone || "Phone not added";
     saveCustomerToStorage();
   }
 
   if (!isAdmin) {
     adminProfile = null;
+  } else {
+    adminProfile = profile;
   }
 
+  return isAdmin;
+}
+
+async function syncCurrentUserAdminStatus() {
+  if (!supabaseSession?.access_token) {
+    adminProfile = null;
+    if (customer) {
+      customer.isAdmin = false;
+      saveCustomerToStorage();
+    }
+    return false;
+  }
+
+  const profile = await fetchCurrentSupabaseUserProfile();
+  const isAdmin = applySupabaseAdminState(profile);
   syncAdminButtonState();
   return isAdmin;
+}
+
+async function requireAdminAccessForRoute() {
+  if (!supabaseSession?.access_token) return false;
+  return await syncCurrentUserAdminStatus();
 }
 
 function loadLocalAdminProducts() {
@@ -1685,9 +1702,10 @@ function showRepairView() {
   renderRepairBooking();
 }
 
-function showAdminView(section = "overview") {
+async function showAdminView(section = "overview") {
   resetPagePosition();
-  if (!isAuthorizedAdminAccount(customer)) {
+  const isAdmin = await requireAdminAccessForRoute();
+  if (!isAdmin || !isAuthorizedAdminAccount(customer)) {
     window.location.hash = "";
     if (adminButton) adminButton.hidden = true;
     showHomeView();
@@ -1722,11 +1740,11 @@ function showRepairTrackingView() {
   renderRepairTracking();
 }
 
-function handleHashRouting() {
+async function handleHashRouting() {
   resetPagePosition();
   const hash = window.location.hash;
   if (hash.startsWith("#admin")) {
-    showAdminView(hash.split("/")[1] || "overview");
+    await showAdminView(hash.split("/")[1] || "overview");
     return;
   }
 
@@ -1897,13 +1915,15 @@ accountButton.addEventListener("click", () => {
   window.location.hash = "account";
 });
 
-adminButton.addEventListener("click", () => {
-  if (!isAuthorizedAdminAccount(customer)) {
+adminButton.addEventListener("click", async () => {
+  const isAdmin = await syncCurrentUserAdminStatus();
+  const isAuthorized = isAuthorizedAdminAccount(customer);
+  if (!isAdmin || !isAuthorized) {
     window.location.hash = "";
     showHomeView();
     return;
   }
-  window.location.hash = "admin";
+  window.location.hash = "#admin";
 });
 
 cartToggleButton.addEventListener("click", () => {
