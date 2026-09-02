@@ -305,6 +305,10 @@ const LOCAL_ADMIN_CONFIG = {
   password: "Oda3ry76033##"
 };
 
+if ("scrollRestoration" in window.history) {
+  window.history.scrollRestoration = "manual";
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -341,6 +345,30 @@ function createResponsiveImageMarkup(src, alt, { width = 800, height = 600, load
   const effectiveHeight = height || Math.round(width * 0.75);
 
   return `<img src="${normalizedSrc}" alt="${safeAlt}" width="${width}" height="${effectiveHeight}" loading="${loading}" decoding="async"${fetchPriorityAttr}${sizesAttr} />`;
+}
+
+function enhancePasswordInputs(container) {
+  container.querySelectorAll('input[type="password"]').forEach((input) => {
+    const field = document.createElement("span");
+    field.className = "password-field";
+    input.parentNode.insertBefore(field, input);
+    field.appendChild(input);
+
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "password-toggle";
+    toggle.textContent = "SHOW";
+    toggle.setAttribute("aria-label", "Show password");
+    toggle.setAttribute("aria-pressed", "false");
+    toggle.addEventListener("click", () => {
+      const isVisible = input.type === "text";
+      input.type = isVisible ? "password" : "text";
+      toggle.textContent = isVisible ? "SHOW" : "HIDE";
+      toggle.setAttribute("aria-label", isVisible ? "Show password" : "Hide password");
+      toggle.setAttribute("aria-pressed", String(!isVisible));
+    });
+    field.appendChild(toggle);
+  });
 }
 
 function normalizePhoneNumber(value) {
@@ -760,6 +788,8 @@ function renderAccountPage() {
       </div>
     </div>
   `;
+
+  enhancePasswordInputs(accountPage);
 
   document.getElementById("signupForm").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1434,8 +1464,10 @@ function renderProductDetail(product) {
 }
 
 function resetPagePosition() {
-  window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+  window.scrollTo({ top: 0, left: 0, behavior: "auto" });
 }
+
+window.addEventListener("load", resetPagePosition, { once: true });
 
 function showHomeView() {
   resetPagePosition();
@@ -1524,6 +1556,8 @@ function renderAdminLogin() {
       </form>
     </div>
   `;
+
+  enhancePasswordInputs(adminPage);
 
   document.getElementById("adminLoginForm").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -1804,6 +1838,7 @@ function initializeApp() {
     updateCart();
     updateWishlistCount();
     handleHashRouting();
+    window.setTimeout(resetPagePosition, 0);
     loadPaymentMethods();
   } catch (error) {
     console.error("App initialization failed:", error);
