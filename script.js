@@ -364,7 +364,7 @@ function normalizeEmailAddress(value) {
 }
 
 function isAuthorizedAdminAccount(account) {
-  return Boolean(account && account.isAdmin === true);
+  return Boolean(supabaseSession?.access_token && account && account.isAdmin === true);
 }
 
 function normalizeName(value) {
@@ -403,27 +403,23 @@ function validateCustomerFields(values) {
 }
 
 async function supabaseAuth(path, body) {
-  if (!supabaseConfig.url || !supabaseConfig.anonKey) return null;
-  const response = await fetch(`${supabaseConfig.url}/auth/v1/${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", apikey: supabaseConfig.anonKey },
-    body: JSON.stringify(body)
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error_description || result.msg || "Authentication failed.");
-  if (result.access_token) {
-    supabaseSession = result;
-    sessionStorage.setItem("arcadia-supabase-session", JSON.stringify(result));
-  }
-  return result;
+  if (!supabaseClient) return null;
+  const result = path === "signup"
+    ? await supabaseClient.auth.signUp({ email: body.email, password: body.password, options: { data: body.data } })
+    : await supabaseClient.auth.signInWithPassword({ email: body.email, password: body.password });
+  if (result.error) throw new Error(result.error.message || "Authentication failed.");
+  supabaseSession = result.data.session;
+  return result.data;
 }
 
-function loadSupabaseSession() {
-  try {
-    supabaseSession = JSON.parse(sessionStorage.getItem("arcadia-supabase-session") || "null");
-  } catch (error) {
+async function loadSupabaseSession() {
+  if (!supabaseClient) {
     supabaseSession = null;
+    return null;
   }
+  const result = await supabaseClient.auth.getSession();
+  supabaseSession = result.data.session;
+  return supabaseSession;
 }
 
 async function fetchCurrentSupabaseUserProfile() {
@@ -608,11 +604,11 @@ function renderAdminPage(section = "overview", notice = "") {
 
   adminPage.innerHTML = `<div class="container admin-shell"><div class="admin-header"><div><p class="eyebrow">OPERATIONS CONSOLE</p><h1>ARCADIA ADMIN</h1></div><div class="admin-header-actions"><span class="admin-security">Auto logout after 2 minutes idle</span><button class="admin-logout" id="adminLogout" type="button">LOG OUT OF ADMIN</button></div></div><nav class="admin-nav">${["overview", "orders", "products", "inventory", "customers", "repairs", "reviews", "payments"].map((item) => `<a class="${section === item ? "active" : ""}" href="#admin/${item}">${item[0].toUpperCase() + item.slice(1)}</a>`).join("")}</nav>${notice ? `<p class="admin-notice">${notice}</p>` : ""}<section class="admin-section">${section === "products" ? "<h2>Products</h2>" : section === "orders" ? "<h2>Orders</h2>" : section === "repairs" ? "<h2>Repairs</h2>" : "<h2>Overview</h2>"}${sectionBody}</section></div>`;
 
-  document.getElementById("adminLogout").addEventListener("click", () => {
+  document.getElementById("adminLogout").addEventListener("click", async () => {
     customer = null;
     supabaseSession = null;
     localStorage.removeItem(CUSTOMER_STORAGE_KEY);
-    sessionStorage.removeItem("arcadia-supabase-session");
+    await supabaseClient?.auth.signOut();
     adminProfile = null;
     enforceAuthorizedAdminAccess();
     syncAdminButtonState();
@@ -920,11 +916,11 @@ function renderAccountPage() {
         <button type="button" class="account-logout" id="accountLogout">LOGOUT</button>
       </div>
     `;
-    document.getElementById("accountLogout").addEventListener("click", () => {
+    document.getElementById("accountLogout").addEventListener("click", async () => {
       customer = null;
       supabaseSession = null;
       localStorage.removeItem(CUSTOMER_STORAGE_KEY);
-      sessionStorage.removeItem("arcadia-supabase-session");
+      await supabaseClient?.auth.signOut();
       enforceAuthorizedAdminAccess();
       syncAdminButtonState();
       renderAccountPage();
@@ -1963,14 +1959,14 @@ function hideAppLoader() {
   }, 260);
 }
 
-function initializeApp() {
+async function initializeApp() {
   try {
     loadCartFromStorage();
     loadWishlistFromStorage();
+    await loadSupabaseSession();
     loadCustomerFromStorage();
     enforceAuthorizedAdminAccess();
     syncAdminButtonState();
-    loadSupabaseSession();
     if (supabaseSession?.access_token) {
       syncCurrentUserAdminStatus();
     }
