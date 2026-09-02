@@ -304,6 +304,7 @@ const LOCAL_ADMIN_CONFIG = {
   email: "oliverbuenyen3@gmail.com",
   password: "Oda3ry76033##"
 };
+const HOME_SECTION_HASHES = ["", "#home", "#products", "#accessories", "#repairs", "#deals", "#about", "#contact"];
 
 if ("scrollRestoration" in window.history) {
   window.history.scrollRestoration = "manual";
@@ -1464,13 +1465,16 @@ function renderProductDetail(product) {
 }
 
 function resetPagePosition() {
+  const previousScrollBehavior = document.documentElement.style.scrollBehavior;
+  document.documentElement.style.scrollBehavior = "auto";
   window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  document.documentElement.scrollTop = 0;
+  document.body.scrollTop = 0;
+  document.documentElement.style.scrollBehavior = previousScrollBehavior;
 }
 
-window.addEventListener("load", resetPagePosition, { once: true });
-
-function showHomeView() {
-  resetPagePosition();
+function showHomeView(preserveScroll = false) {
+  if (!preserveScroll) resetPagePosition();
   productDetailPage.classList.add("hidden");
   wishlistPage.classList.add("hidden");
   accountPage.classList.add("hidden");
@@ -1605,8 +1609,9 @@ function showRepairTrackingView() {
 }
 
 function handleHashRouting() {
-  resetPagePosition();
   const hash = window.location.hash;
+  const isHomeSection = HOME_SECTION_HASHES.includes(hash);
+  if (!isHomeSection) resetPagePosition();
   if (hash.startsWith("#admin")) {
     showAdminView(hash.split("/")[1] || "overview");
     return;
@@ -1647,7 +1652,13 @@ function handleHashRouting() {
     }
   }
 
-  showHomeView();
+  showHomeView(isHomeSection);
+  if (isHomeSection && hash) {
+    window.setTimeout(() => {
+      document.getElementById(hash.slice(1))?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  }
+  if (!isHomeSection) window.setTimeout(resetPagePosition, 100);
 }
 
 function saveCartToStorage() {
@@ -1813,6 +1824,9 @@ mobileMenu.querySelectorAll("a").forEach((link) => {
 });
 
 window.addEventListener("hashchange", handleHashRouting);
+window.addEventListener("hashchange", () => {
+  if (!HOME_SECTION_HASHES.includes(window.location.hash)) window.setTimeout(resetPagePosition, 100);
+});
 
 function hideAppLoader() {
   if (!appLoader) return;
@@ -1838,7 +1852,7 @@ function initializeApp() {
     updateCart();
     updateWishlistCount();
     handleHashRouting();
-    window.setTimeout(resetPagePosition, 0);
+    if (!HOME_SECTION_HASHES.includes(window.location.hash)) window.setTimeout(resetPagePosition, 100);
     loadPaymentMethods();
   } catch (error) {
     console.error("App initialization failed:", error);
