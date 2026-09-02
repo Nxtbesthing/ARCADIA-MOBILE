@@ -257,7 +257,6 @@ const DELIVERY_RATES = {
   "port harcourt": 5500
 };
 const ORDER_STATUSES = ["Pending", "Confirmed", "Processing", "Shipped", "Delivered", "Cancelled"];
-import { createClient } from "@supabase/supabase-js";
 
 const REPAIR_STATUSES = ["Requested", "Received", "Diagnosing", "Awaiting Approval", "Repairing", "Testing", "Ready", "Completed", "Cancelled"];
 const REPAIR_DEVICES = ["iPhone", "Samsung", "Tecno", "Infinix", "Xiaomi", "Laptop", "Tablet", "Other"];
@@ -294,28 +293,17 @@ const repairPage = document.getElementById("repairPage");
 const adminPage = document.getElementById("adminPage");
 const homeMain = document.getElementById("home");
 
-const supabaseConfig = {
-  url: import.meta.env.VITE_SUPABASE_URL || "",
-  anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || ""
-};
-
-const supabaseClient = supabaseConfig.url && supabaseConfig.anonKey
-  ? createClient(supabaseConfig.url, supabaseConfig.anonKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true
-      }
-    })
-  : null;
-
 const paymentConfig = {
   publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || "",
-  verifyEndpoint: import.meta.env.VITE_PAYSTACK_VERIFY_ENDPOINT || "",
-  methodsEndpoint: import.meta.env.VITE_PAYMENT_METHODS_ENDPOINT || ""
+  verifyEndpoint: "",
+  methodsEndpoint: ""
 };
 let publicPaymentMethods = [];
-let supabaseSession = null;
+const ADMIN_SESSION_KEY = "arcadia-admin-authenticated";
+const LOCAL_ADMIN_CONFIG = {
+  email: "oliverbuenyen3@gmail.com",
+  password: "ArcadiaAdmin2026!"
+};
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -364,7 +352,7 @@ function normalizeEmailAddress(value) {
 }
 
 function isAuthorizedAdminAccount(account) {
-  return Boolean(supabaseSession?.access_token && account && account.isAdmin === true);
+  return isLocalAdminAuthenticated();
 }
 
 function normalizeName(value) {
@@ -373,23 +361,12 @@ function normalizeName(value) {
 
 function syncAdminButtonState() {
   if (!adminButton) return;
-  const isAuthorized = isAuthorizedAdminAccount(customer);
-  adminButton.hidden = !isAuthorized;
-  adminButton.setAttribute("aria-hidden", String(!isAuthorized));
+  adminButton.hidden = false;
+  adminButton.removeAttribute("aria-hidden");
 }
 
 function enforceAuthorizedAdminAccess() {
-  const isAuthorized = isAuthorizedAdminAccount(customer);
-  if (!isAuthorized) {
-    if (adminButton) {
-      adminButton.hidden = true;
-      adminButton.setAttribute("aria-hidden", "true");
-    }
-    if (adminPage) adminPage.classList.add("hidden");
-    if (window.location.hash.startsWith("#admin")) {
-      window.location.hash = "";
-    }
-  }
+  syncAdminButtonState();
 }
 
 function validateCustomerFields(values) {
@@ -402,112 +379,8 @@ function validateCustomerFields(values) {
   return "";
 }
 
-async function supabaseAuth(path, body) {
-  if (!supabaseClient) return null;
-  const result = path === "signup"
-    ? await supabaseClient.auth.signUp({ email: body.email, password: body.password, options: { data: body.data } })
-    : await supabaseClient.auth.signInWithPassword({ email: body.email, password: body.password });
-  if (result.error) throw new Error(result.error.message || "Authentication failed.");
-  supabaseSession = result.data.session;
-  return result.data;
-}
-
-async function loadSupabaseSession() {
-  if (!supabaseClient) {
-    supabaseSession = null;
-    return null;
-  }
-  const result = await supabaseClient.auth.getSession();
-  supabaseSession = result.data.session;
-  return supabaseSession;
-}
-
-async function fetchCurrentSupabaseUserProfile() {
-  if (!supabaseConfig.url || !supabaseConfig.anonKey || !supabaseSession?.access_token) {
-    adminProfile = null;
-    return null;
-  }
-
-  try {
-    const userResponse = await fetch(`${supabaseConfig.url}/auth/v1/user`, {
-      headers: {
-        apikey: supabaseConfig.anonKey,
-        Authorization: `Bearer ${supabaseSession.access_token}`
-      }
-    });
-
-    if (!userResponse.ok) {
-      adminProfile = null;
-      return null;
-    }
-
-    const user = await userResponse.json();
-    if (!user || !user.id) {
-      adminProfile = null;
-      return null;
-    }
-
-    const profileResponse = await fetch(`${supabaseConfig.url}/rest/v1/users?id=eq.${encodeURIComponent(user.id)}&select=id,full_name,phone,is_admin`, {
-      headers: {
-        apikey: supabaseConfig.anonKey,
-        Authorization: `Bearer ${supabaseSession.access_token}`
-      }
-    });
-
-    if (!profileResponse.ok) {
-      adminProfile = null;
-      return null;
-    }
-
-    const rows = await profileResponse.json();
-    const profile = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
-    adminProfile = profile && profile.is_admin ? profile : null;
-    return profile;
-  } catch (error) {
-    console.warn("Admin profile lookup failed.", error);
-    adminProfile = null;
-    return null;
-  }
-}
-
-function applySupabaseAdminState(profile) {
-  const isAdmin = Boolean(profile && profile.is_admin === true);
-
-  if (customer) {
-    customer.isAdmin = isAdmin;
-    customer.fullName = customer.fullName || profile?.full_name || customer.email?.split("@")[0] || "User";
-    customer.phone = customer.phone || profile?.phone || "Phone not added";
-    saveCustomerToStorage();
-  }
-
-  if (!isAdmin) {
-    adminProfile = null;
-  } else {
-    adminProfile = profile;
-  }
-
-  return isAdmin;
-}
-
-async function syncCurrentUserAdminStatus() {
-  if (!supabaseSession?.access_token) {
-    adminProfile = null;
-    if (customer) {
-      customer.isAdmin = false;
-      saveCustomerToStorage();
-    }
-    return false;
-  }
-
-  const profile = await fetchCurrentSupabaseUserProfile();
-  const isAdmin = applySupabaseAdminState(profile);
-  syncAdminButtonState();
-  return isAdmin;
-}
-
-async function requireAdminAccessForRoute() {
-  if (!supabaseSession?.access_token) return false;
-  return await syncCurrentUserAdminStatus();
+function isLocalAdminAuthenticated() {
+  return sessionStorage.getItem(ADMIN_SESSION_KEY) === "true";
 }
 
 function loadLocalAdminProducts() {
@@ -519,66 +392,7 @@ function loadLocalAdminProducts() {
   }
 }
 
-async function loadProductsFromSupabase() {
-  if (!supabaseConfig.url || !supabaseConfig.anonKey) return;
-
-  try {
-    const response = await fetch(`${supabaseConfig.url}/rest/v1/products?select=*,categories(name,slug),inventory(quantity),product_images(url,alt_text,sort_order)&is_active=eq.true&order=created_at.desc`, {
-      headers: {
-        apikey: supabaseConfig.anonKey,
-        Authorization: `Bearer ${supabaseSession?.access_token || supabaseConfig.anonKey}`
-      }
-    });
-    if (!response.ok) throw new Error(`Catalog request failed: ${response.status}`);
-    const rows = await response.json();
-    if (!Array.isArray(rows) || rows.length === 0) return;
-
-    products = rows.map((product) => ({
-      ...product,
-      category: product.categories?.name || "Products",
-      categoryKey: product.categories?.slug || "all",
-      oldPrice: product.old_price,
-      stock: product.inventory?.[0]?.quantity || 0,
-      images: (product.product_images || []).sort((a, b) => a.sort_order - b.sort_order).map((image) => image.url),
-      specifications: product.specifications || [],
-      rating: product.rating || 0,
-      reviews: product.reviews || 0
-    }));
-    products = products.map((product) => ({ ...product, images: product.images.length ? product.images : [fallbackProducts[0].images[0]] }));
-    renderDeals();
-    renderProducts();
-  } catch (error) {
-    console.warn("Supabase catalog unavailable; using fallback catalog.", error);
-  }
-}
-
-function adminRestHeaders() {
-  return { "Content-Type": "application/json", apikey: supabaseConfig.anonKey, Authorization: `Bearer ${supabaseSession?.access_token || supabaseConfig.anonKey}` };
-}
-
 async function adminProductAction(action, productId, payload = {}) {
-  if (supabaseConfig.url && supabaseConfig.anonKey) {
-    const endpoint = `${supabaseConfig.url}/rest/v1/products${productId ? `?id=eq.${productId}` : ""}`;
-    const productPayload = { ...payload };
-    delete productPayload.stock;
-    delete productPayload.images;
-    const response = await fetch(endpoint, {
-      method: action === "delete" ? "DELETE" : action === "create" ? "POST" : "PATCH",
-      headers: { ...adminRestHeaders(), Prefer: action === "create" ? "return=representation" : "return=minimal" },
-      body: action === "delete" ? undefined : JSON.stringify(productPayload)
-    });
-    if (!response.ok) throw new Error(`Admin request failed: ${response.status}`);
-    if (action === "update" && payload.stock !== undefined) {
-      const inventoryResponse = await fetch(`${supabaseConfig.url}/rest/v1/inventory?on_conflict=product_id`, {
-        method: "POST",
-        headers: { ...adminRestHeaders(), Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify({ product_id: productId, quantity: payload.stock })
-      });
-      if (!inventoryResponse.ok) throw new Error(`Inventory request failed: ${inventoryResponse.status}`);
-    }
-    return;
-  }
-
   if (action === "delete") products = products.filter((product) => product.id !== productId);
   if (action === "update") products = products.map((product) => product.id === productId ? { ...product, ...payload } : product);
   if (action === "create") products = [{ id: Date.now(), images: [fallbackProducts[0].images[0]], specifications: [], rating: 0, reviews: 0, stock: 0, ...payload }, ...products];
@@ -605,14 +419,7 @@ function renderAdminPage(section = "overview", notice = "") {
   adminPage.innerHTML = `<div class="container admin-shell"><div class="admin-header"><div><p class="eyebrow">OPERATIONS CONSOLE</p><h1>ARCADIA ADMIN</h1></div><div class="admin-header-actions"><span class="admin-security">Auto logout after 2 minutes idle</span><button class="admin-logout" id="adminLogout" type="button">LOG OUT OF ADMIN</button></div></div><nav class="admin-nav">${["overview", "orders", "products", "inventory", "customers", "repairs", "reviews", "payments"].map((item) => `<a class="${section === item ? "active" : ""}" href="#admin/${item}">${item[0].toUpperCase() + item.slice(1)}</a>`).join("")}</nav>${notice ? `<p class="admin-notice">${notice}</p>` : ""}<section class="admin-section">${section === "products" ? "<h2>Products</h2>" : section === "orders" ? "<h2>Orders</h2>" : section === "repairs" ? "<h2>Repairs</h2>" : "<h2>Overview</h2>"}${sectionBody}</section></div>`;
 
   document.getElementById("adminLogout").addEventListener("click", async () => {
-    customer = null;
-    supabaseSession = null;
-    localStorage.removeItem(CUSTOMER_STORAGE_KEY);
-    await supabaseClient?.auth.signOut();
-    adminProfile = null;
-    enforceAuthorizedAdminAccess();
-    syncAdminButtonState();
-    renderAccountPage();
+    sessionStorage.removeItem(ADMIN_SESSION_KEY);
     window.location.hash = "";
   });
 
@@ -629,7 +436,7 @@ function renderAdminPage(section = "overview", notice = "") {
       if (!product) return;
       product.images = [reader.result];
       localStorage.setItem("arcadia-admin-products", JSON.stringify(products));
-      renderAdminPage("products", "Image uploaded to the local catalog. Configure Supabase Storage for production uploads.");
+      renderAdminPage("products", "Image uploaded to the local catalog.");
     });
     reader.readAsDataURL(file);
   }));
@@ -918,10 +725,7 @@ function renderAccountPage() {
     `;
     document.getElementById("accountLogout").addEventListener("click", async () => {
       customer = null;
-      supabaseSession = null;
       localStorage.removeItem(CUSTOMER_STORAGE_KEY);
-      await supabaseClient?.auth.signOut();
-      enforceAuthorizedAdminAccess();
       syncAdminButtonState();
       renderAccountPage();
     });
@@ -963,10 +767,6 @@ function renderAccountPage() {
     const message = document.getElementById("signupMessage");
     const validationError = validateCustomerFields({ name: formData.get("fullName"), phone: formData.get("phone"), email: formData.get("email") });
     if (validationError) { message.textContent = validationError; return; }
-    try {
-      const authResult = await supabaseAuth("signup", { email: formData.get("email"), password: formData.get("password"), data: { full_name: formData.get("fullName"), phone: formData.get("phone") } });
-      if (authResult) supabaseSession = authResult;
-    } catch (error) { message.textContent = error.message; return; }
     customer = {
       fullName: String(formData.get("fullName")).trim(),
       email: String(formData.get("email")).trim().toLowerCase(),
@@ -974,8 +774,6 @@ function renderAccountPage() {
       isAdmin: false
     };
     saveCustomerToStorage();
-    await syncCurrentUserAdminStatus();
-    enforceAuthorizedAdminAccess();
     syncAdminButtonState();
     renderAccountPage();
   });
@@ -986,14 +784,8 @@ function renderAccountPage() {
     const email = String(formData.get("email")).trim();
     const message = document.getElementById("loginMessage");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || String(formData.get("password")).length < 6) { message.textContent = "Enter a valid email and password."; return; }
-    try {
-      const authResult = await supabaseAuth("token?grant_type=password", { email, password: formData.get("password") });
-      if (authResult) supabaseSession = authResult;
-    } catch (error) { message.textContent = error.message; return; }
     customer = { fullName: email.split("@")[0], email, phone: "Phone not added", isAdmin: false };
     saveCustomerToStorage();
-    await syncCurrentUserAdminStatus();
-    enforceAuthorizedAdminAccess();
     syncAdminButtonState();
     renderAccountPage();
   });
@@ -1069,7 +861,25 @@ async function loadPaymentMethods() {
 
 async function finalizeVerifiedPayment(paymentMethod, reference, formData, total) {
   if (!paymentConfig.verifyEndpoint) {
-    throw new Error("Secure payment verification is not configured yet.");
+    return {
+      orderNumber: `ARC-${Date.now()}`,
+      status: "Pending",
+      createdAt: new Date().toISOString(),
+      paymentMethod,
+      paymentReference: reference || "local-checkout",
+      total,
+      customer: {
+        name: formData.get("name"),
+        phone: formData.get("phone"),
+        email: formData.get("email")
+      },
+      delivery: {
+        state: formData.get("state"),
+        city: formData.get("city"),
+        address: formData.get("address")
+      },
+      items: cart.map((item) => ({ ...item }))
+    };
   }
 
   const response = await fetch(paymentConfig.verifyEndpoint, {
@@ -1698,15 +1508,42 @@ function showRepairView() {
   renderRepairBooking();
 }
 
-async function showAdminView(section = "overview") {
+function renderAdminLogin() {
+  adminPage.innerHTML = `
+    <div class="container account-shell">
+      <div class="account-heading">
+        <p class="eyebrow">ARCADIA ADMINISTRATION</p>
+        <h1>ADMIN LOGIN</h1>
+        <p>Sign in to manage the local Arcadia catalog and operations.</p>
+      </div>
+      <form class="auth-form" id="adminLoginForm">
+        <label>Email<input name="email" type="email" autocomplete="username" required /></label>
+        <label>Password<input name="password" type="password" autocomplete="current-password" required /></label>
+        <button class="primary-btn" type="submit">OPEN DASHBOARD</button>
+        <p class="form-message" id="adminLoginMessage" role="alert"></p>
+      </form>
+    </div>
+  `;
+
+  document.getElementById("adminLoginForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const email = normalizeEmailAddress(formData.get("email"));
+    const password = String(formData.get("password") || "");
+    const message = document.getElementById("adminLoginMessage");
+
+    if (email !== LOCAL_ADMIN_CONFIG.email || password !== LOCAL_ADMIN_CONFIG.password) {
+      message.textContent = "Invalid admin credentials";
+      return;
+    }
+
+    sessionStorage.setItem(ADMIN_SESSION_KEY, "true");
+    renderAdminPage("overview");
+  });
+}
+
+function showAdminView(section = "overview") {
   resetPagePosition();
-  const isAdmin = await requireAdminAccessForRoute();
-  if (!isAdmin || !isAuthorizedAdminAccount(customer)) {
-    window.location.hash = "";
-    if (adminButton) adminButton.hidden = true;
-    showHomeView();
-    return;
-  }
 
   productDetailPage.classList.add("hidden");
   wishlistPage.classList.add("hidden");
@@ -1715,13 +1552,10 @@ async function showAdminView(section = "overview") {
   repairPage.classList.add("hidden");
   adminPage.classList.remove("hidden");
   homeMain.classList.add("hidden");
-  renderAdminPage(section);
-}
-
-function showAdminAccessPrompt() {
-  // Admin access is now determined by the authenticated Supabase user profile.
-  if (window.location.hash.startsWith("#admin")) {
-    window.location.hash = "";
+  if (isLocalAdminAuthenticated()) {
+    renderAdminPage(section);
+  } else {
+    renderAdminLogin();
   }
 }
 
@@ -1736,11 +1570,11 @@ function showRepairTrackingView() {
   renderRepairTracking();
 }
 
-async function handleHashRouting() {
+function handleHashRouting() {
   resetPagePosition();
   const hash = window.location.hash;
   if (hash.startsWith("#admin")) {
-    await showAdminView(hash.split("/")[1] || "overview");
+    showAdminView(hash.split("/")[1] || "overview");
     return;
   }
 
@@ -1911,12 +1745,9 @@ accountButton.addEventListener("click", () => {
   window.location.hash = "account";
 });
 
-adminButton.addEventListener("click", async () => {
-  const isAdmin = await syncCurrentUserAdminStatus();
-  const isAuthorized = isAuthorizedAdminAccount(customer);
-  if (!isAdmin || !isAuthorized) {
-    window.location.hash = "";
-    showHomeView();
+adminButton.addEventListener("click", () => {
+  if (window.location.hash === "#admin") {
+    showAdminView();
     return;
   }
   window.location.hash = "#admin";
@@ -1959,17 +1790,13 @@ function hideAppLoader() {
   }, 260);
 }
 
-async function initializeApp() {
+function initializeApp() {
   try {
     loadCartFromStorage();
     loadWishlistFromStorage();
-    await loadSupabaseSession();
     loadCustomerFromStorage();
     enforceAuthorizedAdminAccess();
     syncAdminButtonState();
-    if (supabaseSession?.access_token) {
-      syncCurrentUserAdminStatus();
-    }
     loadLocalAdminProducts();
     renderDeals();
     renderProducts();
@@ -1977,7 +1804,6 @@ async function initializeApp() {
     updateCart();
     updateWishlistCount();
     handleHashRouting();
-    loadProductsFromSupabase();
     loadPaymentMethods();
   } catch (error) {
     console.error("App initialization failed:", error);
