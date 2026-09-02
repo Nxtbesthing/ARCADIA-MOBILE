@@ -245,9 +245,6 @@ const WISHLIST_STORAGE_KEY = "arcadia-wishlist";
 const CUSTOMER_STORAGE_KEY = "arcadia-customer";
 const ORDERS_STORAGE_KEY = "arcadia-orders";
 const REPAIRS_STORAGE_KEY = "arcadia-repairs";
-const AUTHORIZED_ADMIN_EMAIL = "oliverbuenyen3@gmail.com";
-const AUTHORIZED_ADMIN_PHONE = "08020376702";
-const AUTHORIZED_ADMIN_NAME = "Oliver Latnie Buenyen";
 const DELIVERY_RATES = {
   jos: 2000,
   "jos north": 2000,
@@ -265,10 +262,7 @@ import { createClient } from "@supabase/supabase-js";
 const REPAIR_STATUSES = ["Requested", "Received", "Diagnosing", "Awaiting Approval", "Repairing", "Testing", "Ready", "Completed", "Cancelled"];
 const REPAIR_DEVICES = ["iPhone", "Samsung", "Tecno", "Infinix", "Xiaomi", "Laptop", "Tablet", "Other"];
 const REPAIR_PROBLEMS = ["Broken Screen", "Battery", "Charging", "Camera", "Speaker", "Software", "Water Damage", "Other"];
-const ADMIN_PASSWORD_HASH = "fa9a1e7a490c1c977d563e776092ff8027d8323a9dae9098e24a44325273bfed";
-const ADMIN_INACTIVITY_LIMIT = 2 * 60 * 1000;
-let adminUnlocked = sessionStorage.getItem("arcadia-admin-unlocked") === "true";
-let adminInactivityTimer;
+let adminProfile = null;
 
 const appLoader = document.getElementById("appLoader");
 const localBusinessSchema = document.getElementById("localBusinessSchema");
@@ -370,11 +364,7 @@ function normalizeEmailAddress(value) {
 }
 
 function isAuthorizedAdminAccount(account) {
-  if (!account || !account.email || !account.phone) return false;
-  const emailMatches = normalizeEmailAddress(account.email) === AUTHORIZED_ADMIN_EMAIL;
-  const phoneMatches = normalizePhoneNumber(account.phone) === normalizePhoneNumber(AUTHORIZED_ADMIN_PHONE);
-  const nameMatches = normalizeName(account.fullName || "") === normalizeName(AUTHORIZED_ADMIN_NAME);
-  return emailMatches && phoneMatches && nameMatches;
+  return Boolean(account && account.isAdmin === true);
 }
 
 function normalizeName(value) {
@@ -383,15 +373,14 @@ function normalizeName(value) {
 
 function syncAdminButtonState() {
   if (!adminButton) return;
-  adminButton.hidden = !isAuthorizedAdminAccount(customer);
-  adminButton.setAttribute("aria-hidden", String(!isAuthorizedAdminAccount(customer)));
+  const isAuthorized = isAuthorizedAdminAccount(customer);
+  adminButton.hidden = !isAuthorized;
+  adminButton.setAttribute("aria-hidden", String(!isAuthorized));
 }
 
 function enforceAuthorizedAdminAccess() {
   const isAuthorized = isAuthorizedAdminAccount(customer);
   if (!isAuthorized) {
-    adminUnlocked = false;
-    sessionStorage.removeItem("arcadia-admin-unlocked");
     if (adminButton) {
       adminButton.hidden = true;
       adminButton.setAttribute("aria-hidden", "true");
@@ -435,6 +424,77 @@ function loadSupabaseSession() {
   } catch (error) {
     supabaseSession = null;
   }
+}
+
+async function fetchCurrentSupabaseUserProfile() {
+  if (!supabaseConfig.url || !supabaseConfig.anonKey || !supabaseSession?.access_token) {
+    adminProfile = null;
+    return null;
+  }
+
+  try {
+    const userResponse = await fetch(`${supabaseConfig.url}/auth/v1/user`, {
+      headers: {
+        apikey: supabaseConfig.anonKey,
+        Authorization: `Bearer ${supabaseSession.access_token}`
+      }
+    });
+
+    if (!userResponse.ok) {
+      adminProfile = null;
+      return null;
+    }
+
+    const user = await userResponse.json();
+    if (!user || !user.id) {
+      adminProfile = null;
+      return null;
+    }
+
+    const profileResponse = await fetch(`${supabaseConfig.url}/rest/v1/users?id=eq.${encodeURIComponent(user.id)}&select=id,full_name,phone,is_admin`, {
+      headers: {
+        apikey: supabaseConfig.anonKey,
+        Authorization: `Bearer ${supabaseSession.access_token}`
+      }
+    });
+
+    if (!profileResponse.ok) {
+      adminProfile = null;
+      return null;
+    }
+
+    const rows = await profileResponse.json();
+    const profile = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+    adminProfile = profile && profile.is_admin ? profile : null;
+    return profile;
+  } catch (error) {
+    console.warn("Admin profile lookup failed.", error);
+    adminProfile = null;
+    return null;
+  }
+}
+
+async function syncCurrentUserAdminStatus() {
+  if (!supabaseSession?.access_token) {
+    adminProfile = null;
+    if (customer) customer.isAdmin = false;
+    return false;
+  }
+
+  const profile = await fetchCurrentSupabaseUserProfile();
+  const isAdmin = Boolean(profile && profile.is_admin === true);
+
+  if (customer) {
+    customer.isAdmin = isAdmin;
+    saveCustomerToStorage();
+  }
+
+  if (!isAdmin) {
+    adminProfile = null;
+  }
+
+  syncAdminButtonState();
+  return isAdmin;
 }
 
 function loadLocalAdminProducts() {
@@ -531,7 +591,17 @@ function renderAdminPage(section = "overview", notice = "") {
 
   adminPage.innerHTML = `<div class="container admin-shell"><div class="admin-header"><div><p class="eyebrow">OPERATIONS CONSOLE</p><h1>ARCADIA ADMIN</h1></div><div class="admin-header-actions"><span class="admin-security">Auto logout after 2 minutes idle</span><button class="admin-logout" id="adminLogout" type="button">LOG OUT OF ADMIN</button></div></div><nav class="admin-nav">${["overview", "orders", "products", "inventory", "customers", "repairs", "reviews", "payments"].map((item) => `<a class="${section === item ? "active" : ""}" href="#admin/${item}">${item[0].toUpperCase() + item.slice(1)}</a>`).join("")}</nav>${notice ? `<p class="admin-notice">${notice}</p>` : ""}<section class="admin-section">${section === "products" ? "<h2>Products</h2>" : section === "orders" ? "<h2>Orders</h2>" : section === "repairs" ? "<h2>Repairs</h2>" : "<h2>Overview</h2>"}${sectionBody}</section></div>`;
 
-  document.getElementById("adminLogout").addEventListener("click", logoutAdmin);
+  document.getElementById("adminLogout").addEventListener("click", () => {
+    customer = null;
+    supabaseSession = null;
+    localStorage.removeItem(CUSTOMER_STORAGE_KEY);
+    sessionStorage.removeItem("arcadia-supabase-session");
+    adminProfile = null;
+    enforceAuthorizedAdminAccess();
+    syncAdminButtonState();
+    renderAccountPage();
+    window.location.hash = "";
+  });
 
   document.getElementById("adminProductForm")?.addEventListener("submit", async (event) => { event.preventDefault(); const data = new FormData(event.currentTarget); await adminProductAction("create", null, { name: data.get("name"), brand: data.get("brand"), price: Number(data.get("price")), stock: Number(data.get("stock")), images: [data.get("image") || fallbackProducts[0].images[0]] }); renderAdminPage("products", "Product added."); });
   adminPage.querySelectorAll(".admin-action[data-action='delete']").forEach((button) => button.addEventListener("click", async () => { await adminProductAction("delete", Number(button.dataset.id)); renderAdminPage("products", "Product deleted."); }));
@@ -552,27 +622,6 @@ function renderAdminPage(section = "overview", notice = "") {
   }));
   adminPage.querySelectorAll(".repair-status-select").forEach((select) => select.addEventListener("change", () => { const repairs = loadRepairsFromStorage().map((repair) => repair.repairId === select.dataset.id ? { ...repair, status: select.value } : repair); localStorage.setItem(REPAIRS_STORAGE_KEY, JSON.stringify(repairs)); }));
   adminPage.querySelectorAll(".admin-action[data-action='repair-save']").forEach((button) => button.addEventListener("click", () => { const repairId = button.dataset.id; const diagnosis = adminPage.querySelector(`.repair-inline[data-id='${repairId}'][data-field='diagnosis']`).value; const repairCost = Number(adminPage.querySelector(`.repair-inline[data-id='${repairId}'][data-field='repairCost']`).value) || null; const repairs = loadRepairsFromStorage().map((repair) => repair.repairId === repairId ? { ...repair, diagnosis, repairCost, status: adminPage.querySelector(`.repair-status-select[data-id='${repairId}']`).value } : repair); localStorage.setItem(REPAIRS_STORAGE_KEY, JSON.stringify(repairs)); renderAdminPage("repairs", "Repair details updated." ); }));
-}
-
-function startAdminInactivityTimer() {
-  clearTimeout(adminInactivityTimer);
-  adminInactivityTimer = setTimeout(logoutAdmin, ADMIN_INACTIVITY_LIMIT);
-}
-
-function resetAdminInactivityTimer() {
-  if (!adminUnlocked || !window.location.hash.startsWith("#admin")) return;
-  startAdminInactivityTimer();
-}
-
-function logoutAdmin() {
-  adminUnlocked = false;
-  clearTimeout(adminInactivityTimer);
-  sessionStorage.removeItem("arcadia-admin-unlocked");
-  if (window.location.hash.startsWith("#admin")) {
-    window.location.hash = "";
-  } else {
-    showHomeView();
-  }
 }
 
 function formatCurrency(amount) {
@@ -825,6 +874,7 @@ function loadCustomerFromStorage() {
   try {
     const savedCustomer = JSON.parse(localStorage.getItem(CUSTOMER_STORAGE_KEY) || "null");
     customer = savedCustomer && savedCustomer.email ? savedCustomer : null;
+    if (customer) customer.isAdmin = Boolean(customer.isAdmin === true);
   } catch (error) {
     customer = null;
   }
@@ -907,9 +957,11 @@ function renderAccountPage() {
     customer = {
       fullName: String(formData.get("fullName")).trim(),
       email: String(formData.get("email")).trim().toLowerCase(),
-      phone: String(formData.get("phone")).trim()
+      phone: String(formData.get("phone")).trim(),
+      isAdmin: false
     };
     saveCustomerToStorage();
+    await syncCurrentUserAdminStatus();
     enforceAuthorizedAdminAccess();
     syncAdminButtonState();
     renderAccountPage();
@@ -925,8 +977,9 @@ function renderAccountPage() {
       const authResult = await supabaseAuth("token?grant_type=password", { email, password: formData.get("password") });
       if (authResult) supabaseSession = authResult;
     } catch (error) { message.textContent = error.message; return; }
-    customer = { fullName: email.split("@")[0], email, phone: "Phone not added" };
+    customer = { fullName: email.split("@")[0], email, phone: "Phone not added", isAdmin: false };
     saveCustomerToStorage();
+    await syncCurrentUserAdminStatus();
     enforceAuthorizedAdminAccess();
     syncAdminButtonState();
     renderAccountPage();
@@ -1641,11 +1694,6 @@ function showAdminView(section = "overview") {
     return;
   }
 
-  if (!adminUnlocked) {
-    showAdminAccessPrompt();
-    return;
-  }
-
   productDetailPage.classList.add("hidden");
   wishlistPage.classList.add("hidden");
   accountPage.classList.add("hidden");
@@ -1654,58 +1702,13 @@ function showAdminView(section = "overview") {
   adminPage.classList.remove("hidden");
   homeMain.classList.add("hidden");
   renderAdminPage(section);
-  startAdminInactivityTimer();
-}
-
-async function hashAdminPassword(password) {
-  const encodedPassword = new TextEncoder().encode(password);
-  const digest = await crypto.subtle.digest("SHA-256", encodedPassword);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function showAdminAccessPrompt() {
-  if (document.getElementById("adminAccessModal")) return;
-
-  const modal = document.createElement("div");
-  modal.className = "admin-access-modal";
-  modal.id = "adminAccessModal";
-  modal.innerHTML = `
-    <div class="admin-access-dialog" role="dialog" aria-modal="true" aria-labelledby="adminAccessTitle">
-      <button class="admin-access-close" type="button" aria-label="Close admin access">×</button>
-      <p class="eyebrow">RESTRICTED AREA</p>
-      <h2 id="adminAccessTitle">Only the admin can access it</h2>
-      <p>Enter the admin password to continue.</p>
-      <form id="adminAccessForm">
-        <label>Password<input name="password" type="password" autocomplete="current-password" required autofocus /></label>
-        <button class="primary-btn" type="submit">ACCESS ADMIN</button>
-        <p class="admin-access-error" id="adminAccessError" role="alert"></p>
-      </form>
-    </div>
-  `;
-  document.body.appendChild(modal);
-
-  const closeModal = () => {
-    modal.remove();
-    if (window.location.hash.startsWith("#admin")) window.location.hash = "";
-  };
-
-  modal.querySelector(".admin-access-close").addEventListener("click", closeModal);
-  modal.addEventListener("click", (event) => {
-    if (event.target === modal) closeModal();
-  });
-  modal.querySelector("#adminAccessForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const password = new FormData(event.currentTarget).get("password");
-    const isValid = await hashAdminPassword(password) === ADMIN_PASSWORD_HASH;
-    if (!isValid) {
-      modal.querySelector("#adminAccessError").textContent = "Incorrect password. Admin access denied.";
-      return;
-    }
-    adminUnlocked = true;
-    sessionStorage.setItem("arcadia-admin-unlocked", "true");
-    modal.remove();
-    showAdminView(window.location.hash.split("/")[1] || "overview");
-  });
+  // Admin access is now determined by the authenticated Supabase user profile.
+  if (window.location.hash.startsWith("#admin")) {
+    window.location.hash = "";
+  }
 }
 
 function showRepairTrackingView() {
@@ -1929,10 +1932,6 @@ mobileMenu.querySelectorAll("a").forEach((link) => {
 });
 
 window.addEventListener("hashchange", handleHashRouting);
-document.addEventListener("pointerdown", resetAdminInactivityTimer);
-document.addEventListener("keydown", resetAdminInactivityTimer);
-document.addEventListener("touchstart", resetAdminInactivityTimer);
-document.addEventListener("scroll", resetAdminInactivityTimer, { passive: true });
 
 function hideAppLoader() {
   if (!appLoader) return;
@@ -1952,6 +1951,9 @@ function initializeApp() {
     enforceAuthorizedAdminAccess();
     syncAdminButtonState();
     loadSupabaseSession();
+    if (supabaseSession?.access_token) {
+      syncCurrentUserAdminStatus();
+    }
     loadLocalAdminProducts();
     renderDeals();
     renderProducts();
