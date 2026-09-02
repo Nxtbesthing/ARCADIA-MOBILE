@@ -302,7 +302,7 @@ let publicPaymentMethods = [];
 const ADMIN_SESSION_KEY = "arcadia-admin-authenticated";
 const LOCAL_ADMIN_CONFIG = {
   email: "oliverbuenyen3@gmail.com",
-  password: "ArcadiaAdmin2026!"
+  password: "Oda3ry76033##"
 };
 
 function escapeHtml(value) {
