@@ -1209,7 +1209,9 @@ function calculateDeliveryFee(state, city) {
 function updateCheckoutDeliveryFee() {
   const form = document.getElementById("checkoutForm");
   if (!form) return;
-  const delivery = calculateDeliveryFee(form.elements.state.value, form.elements.city.value);
+  const delivery = form.elements.fulfillment.value === "pickup"
+    ? 0
+    : calculateDeliveryFee(form.elements.state.value, form.elements.city.value);
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   document.getElementById("checkoutDelivery").textContent = formatCurrency(delivery);
   document.getElementById("checkoutTotal").textContent = formatCurrency(subtotal + delivery);
@@ -1230,6 +1232,7 @@ function createLocalOrder(paymentMethod, reference, formData, total) {
       email: formData.get("email")
     },
     delivery: {
+      method: formData.get("fulfillment"),
       state: formData.get("state"),
       city: formData.get("city"),
       address: formData.get("address")
@@ -1519,6 +1522,13 @@ function renderCheckoutPage() {
             </div>
           </section>
           <section class="checkout-section">
+            <h2>How would you like to receive your order?</h2>
+            <div class="fulfillment-options">
+              <label class="fulfillment-option"><input type="radio" name="fulfillment" value="delivery" checked required /><span><strong>Delivery</strong><small>We'll deliver to your address. Delivery fees depend on location.</small></span></label>
+              <label class="fulfillment-option"><input type="radio" name="fulfillment" value="pickup" required /><span><strong>Store pickup</strong><small>Pick up your order from Arcadia Mobile with no delivery fee.</small></span></label>
+            </div>
+          </section>
+          <section class="checkout-section" id="deliveryInformationSection">
             <h2>Delivery information</h2>
             <div class="checkout-fields">
               <label>State<input name="state" type="text" list="deliveryStates" autocomplete="address-level1" required /></label>
@@ -1527,7 +1537,7 @@ function renderCheckoutPage() {
             </div>
             <datalist id="deliveryStates"><option value="Plateau"></option><option value="Lagos"></option><option value="Abuja"></option><option value="Kaduna"></option><option value="Kano"></option><option value="Rivers"></option></datalist>
             <datalist id="deliveryCities"><option value="Jos"></option><option value="Jos North"></option><option value="Rayfield"></option><option value="Lagos"></option><option value="Abuja"></option><option value="Kaduna"></option><option value="Kano"></option><option value="Port Harcourt"></option></datalist>
-            <p class="delivery-note">Delivery fee updates automatically for Jos, Jos North, Rayfield, other Plateau locations, and supported cities.</p>
+            <p class="delivery-note" id="deliveryNote">Delivery fee updates automatically for Jos, Jos North, Rayfield, other Plateau locations, and supported cities.</p>
           </section>
           <section class="checkout-section">
             <h2>Payment</h2>
@@ -1558,6 +1568,21 @@ function renderCheckoutPage() {
     input.addEventListener("input", updateCheckoutDeliveryFee);
   });
 
+  const fulfillmentInputs = document.querySelectorAll("#checkoutForm input[name='fulfillment']");
+  const deliverySection = document.getElementById("deliveryInformationSection");
+  const deliveryFields = deliverySection.querySelectorAll("input, textarea");
+  const syncFulfillment = () => {
+    const isPickup = document.querySelector("#checkoutForm input[name='fulfillment']:checked").value === "pickup";
+    deliverySection.hidden = isPickup;
+    deliveryFields.forEach((field) => { field.required = !isPickup; });
+    document.getElementById("deliveryNote").textContent = isPickup
+      ? "Store pickup selected. No delivery fee will be added."
+      : "Delivery fee updates automatically for Jos, Jos North, Rayfield, other Plateau locations, and supported cities.";
+    updateCheckoutDeliveryFee();
+  };
+  fulfillmentInputs.forEach((input) => input.addEventListener("change", syncFulfillment));
+  syncFulfillment();
+
   const paymentConfirmation = document.querySelector("#checkoutForm input[name='paymentConfirmed']");
   document.querySelectorAll("#checkoutForm input[name='paymentMethod']").forEach((input) => {
     input.addEventListener("change", () => {
@@ -1572,7 +1597,9 @@ function renderCheckoutPage() {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const paymentMethod = formData.get("paymentMethod");
-    const currentDelivery = calculateDeliveryFee(formData.get("state"), formData.get("city"));
+    const currentDelivery = formData.get("fulfillment") === "pickup"
+      ? 0
+      : calculateDeliveryFee(formData.get("state"), formData.get("city"));
     const currentTotal = subtotal + currentDelivery;
     const submitButton = event.currentTarget.querySelector(".place-order-btn");
     const message = document.getElementById("checkoutMessage");

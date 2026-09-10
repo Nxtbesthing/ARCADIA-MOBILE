@@ -2283,6 +2283,41 @@ main {
   resize: vertical;
 }
 
+.fulfillment-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.fulfillment-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  cursor: pointer;
+}
+
+.fulfillment-option input {
+  margin-top: 3px;
+  accent-color: var(--primary);
+}
+
+.fulfillment-option span {
+  display: grid;
+  gap: 5px;
+}
+
+.fulfillment-option small {
+  color: var(--subtle);
+  line-height: 1.5;
+}
+
+#deliveryInformationSection[hidden] {
+  display: none;
+}
+
 .checkout-fields input:focus,
 .checkout-fields textarea:focus {
   border-color: var(--primary);
@@ -2972,6 +3007,10 @@ main {
   }
 
   .checkout-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .fulfillment-options {
     grid-template-columns: 1fr;
   }
 
