@@ -283,9 +283,9 @@ const billboardStorage = {
   getBillboard() {
     try {
       const saved = JSON.parse(localStorage.getItem(BILLBOARD_STORAGE_KEY) || "null");
-      return saved && saved.title ? saved : { label: "ARCADIA MOBILE", title: "New arrivals, smart deals.", message: "Fresh devices, accessories, and promotions are now available.", mediaType: "", media: "" };
+      return saved && (saved.title || saved.message || saved.media) ? saved : { label: "", title: "", message: "", mediaType: "", media: "" };
     } catch (error) {
-      return { label: "ARCADIA MOBILE", title: "New arrivals, smart deals.", message: "Fresh devices, accessories, and promotions are now available.", mediaType: "", media: "" };
+      return { label: "", title: "", message: "", mediaType: "", media: "" };
     }
   },
   saveBillboard(billboard) {
@@ -297,6 +297,11 @@ function renderBillboard() {
   const container = document.getElementById("heroBillboard");
   if (!container) return;
   const billboard = billboardStorage.getBillboard();
+  const isEmpty = !billboard.title && !billboard.message && !billboard.media;
+  if (isEmpty) {
+    container.innerHTML = `<div class="billboard-empty"><span class="billboard-megaphone" aria-hidden="true">📣</span><strong>ANNOUNCEMENTS</strong><p>Arcadia promotions will appear here.</p></div>`;
+    return;
+  }
   const media = billboard.mediaType === "video" && billboard.media
     ? `<video src="${billboard.media}" muted autoplay loop playsinline aria-label="${escapeHtml(billboard.title)}"></video>`
     : billboard.media

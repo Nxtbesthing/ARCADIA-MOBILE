@@ -430,96 +430,74 @@ main {
   position: relative;
   display: grid;
   place-items: center;
-  min-height: 540px;
-}
-
-.device-visual {
-  width: min(480px, 100%);
-  padding: 18px;
-  border-radius: 36px;
-  background: linear-gradient(145deg, #171717, #080808);
-  box-shadow: 0 32px 64px rgba(0, 0, 0, 0.18);
-}
-
-.device-visual img {
-  border-radius: 26px;
-  min-height: 500px;
-  object-fit: cover;
-}
-
-.floating-offer {
-  position: absolute;
-  right: 22px;
-  bottom: 26px;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  border-radius: 22px;
-  padding: 16px 18px;
-  box-shadow: var(--shadow);
-}
-
-.floating-tag {
-  display: inline-block;
-  margin-bottom: 8px;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--subtle);
-}
-
-.floating-offer strong {
-  display: block;
-  font-size: 1.35rem;
-  letter-spacing: -0.05em;
-}
-
-.floating-offer p {
-  margin: 8px 0 0;
-  color: var(--subtle);
-  font-weight: 600;
+  min-height: 620px;
 }
 
 .hero-billboard {
-  position: absolute;
-  right: 22px;
-  bottom: 26px;
-  width: min(300px, calc(100% - 30px));
-  min-height: 150px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  width: 100%;
+  min-height: 620px;
   overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.95);
-  box-shadow: var(--shadow);
-}
-
-.hero-billboard:empty::after {
-  content: "ARCADIA BILL BOARD";
-  display: grid;
-  min-height: 150px;
-  place-items: center;
-  color: var(--subtle);
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.12em;
+  border: 10px solid #111;
+  border-radius: 34px;
+  background: #fff;
+  box-shadow: 0 32px 64px rgba(0, 0, 0, 0.18);
 }
 
 .hero-billboard > img,
 .hero-billboard > video {
   display: block;
   width: 100%;
-  height: 135px;
+  height: 100%;
+  min-height: 610px;
   object-fit: cover;
 }
 
+.billboard-empty {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  min-height: 600px;
+  padding: 40px;
+  text-align: center;
+  background: repeating-linear-gradient(135deg, #fff 0, #fff 24px, #f3f3f3 24px, #f3f3f3 48px);
+}
+
+.billboard-megaphone {
+  display: block;
+  margin-bottom: 18px;
+  font-size: 5rem;
+  filter: grayscale(1);
+}
+
+.billboard-empty strong {
+  font-size: clamp(1.8rem, 4vw, 3.2rem);
+  letter-spacing: 0.04em;
+}
+
+.billboard-empty p {
+  margin: 10px 0 0;
+  color: var(--subtle);
+  font-size: 0.95rem;
+}
+
 .billboard-copy {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: grid;
   gap: 6px;
-  padding: 14px 18px 16px;
+  padding: 28px;
+  color: #fff;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.88));
 }
 
 .billboard-copy span {
-  color: var(--subtle);
+  color: #ddd;
   font-size: 0.67rem;
   font-weight: 800;
   letter-spacing: 0.13em;
@@ -532,7 +510,7 @@ main {
 
 .billboard-copy p {
   margin: 0;
-  color: var(--subtle);
+  color: #ddd;
   font-size: 0.82rem;
   line-height: 1.45;
 }
@@ -3087,6 +3065,21 @@ main {
 
   .hero-section {
     padding-top: 36px;
+  }
+
+  .hero-visual,
+  .hero-billboard {
+    min-height: 480px;
+  }
+
+  .hero-billboard > img,
+  .hero-billboard > video,
+  .billboard-empty {
+    min-height: 470px;
+  }
+
+  .billboard-copy {
+    padding: 22px;
   }
 
   .hero-actions {
