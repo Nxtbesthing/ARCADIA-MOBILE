@@ -480,6 +480,108 @@ main {
   font-weight: 600;
 }
 
+.hero-billboard {
+  position: absolute;
+  right: 22px;
+  bottom: 26px;
+  width: min(300px, calc(100% - 30px));
+  min-height: 150px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: var(--shadow);
+}
+
+.hero-billboard:empty::after {
+  content: "ARCADIA BILL BOARD";
+  display: grid;
+  min-height: 150px;
+  place-items: center;
+  color: var(--subtle);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.hero-billboard > img,
+.hero-billboard > video {
+  display: block;
+  width: 100%;
+  height: 135px;
+  object-fit: cover;
+}
+
+.billboard-copy {
+  display: grid;
+  gap: 6px;
+  padding: 14px 18px 16px;
+}
+
+.billboard-copy span {
+  color: var(--subtle);
+  font-size: 0.67rem;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+}
+
+.billboard-copy strong {
+  font-size: 1.35rem;
+  letter-spacing: -0.05em;
+}
+
+.billboard-copy p {
+  margin: 0;
+  color: var(--subtle);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.billboard-admin-form {
+  display: grid;
+  gap: 14px;
+  max-width: 720px;
+}
+
+.billboard-admin-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--subtle);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.billboard-admin-form input:not([type="file"]),
+.billboard-admin-form textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  resize: vertical;
+}
+
+.billboard-admin-preview {
+  min-height: 90px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #f4f4f4;
+}
+
+.billboard-admin-preview img,
+.billboard-admin-preview video {
+  display: block;
+  width: 100%;
+  max-height: 280px;
+  object-fit: cover;
+}
+
+.billboard-admin-preview p {
+  padding: 24px;
+  color: var(--subtle);
+}
+
 .categories-section,
 .products-section,
 .deals-section,

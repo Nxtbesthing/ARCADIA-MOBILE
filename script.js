@@ -249,6 +249,7 @@ const WISHLIST_STORAGE_KEY = "arcadia-wishlist";
 const CUSTOMER_STORAGE_KEY = "arcadia-customer";
 const PRODUCT_STORAGE_KEY = "arcadia-admin-products";
 const CATALOG_STORAGE_KEY = "arcadia-device-catalog";
+const BILLBOARD_STORAGE_KEY = "arcadia-billboard";
 
 const productStorage = {
   getProducts() {
@@ -277,6 +278,32 @@ const catalogStorage = {
     localStorage.setItem(CATALOG_STORAGE_KEY, JSON.stringify(catalog));
   }
 };
+
+const billboardStorage = {
+  getBillboard() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(BILLBOARD_STORAGE_KEY) || "null");
+      return saved && saved.title ? saved : { label: "ARCADIA MOBILE", title: "New arrivals, smart deals.", message: "Fresh devices, accessories, and promotions are now available.", mediaType: "", media: "" };
+    } catch (error) {
+      return { label: "ARCADIA MOBILE", title: "New arrivals, smart deals.", message: "Fresh devices, accessories, and promotions are now available.", mediaType: "", media: "" };
+    }
+  },
+  saveBillboard(billboard) {
+    localStorage.setItem(BILLBOARD_STORAGE_KEY, JSON.stringify(billboard));
+  }
+};
+
+function renderBillboard() {
+  const container = document.getElementById("heroBillboard");
+  if (!container) return;
+  const billboard = billboardStorage.getBillboard();
+  const media = billboard.mediaType === "video" && billboard.media
+    ? `<video src="${billboard.media}" muted autoplay loop playsinline aria-label="${escapeHtml(billboard.title)}"></video>`
+    : billboard.media
+      ? `<img src="${billboard.media}" alt="${escapeHtml(billboard.title)}" />`
+      : "";
+  container.innerHTML = `${media}<div class="billboard-copy"><span>${escapeHtml(billboard.label || "ARCADIA MOBILE")}</span><strong>${escapeHtml(billboard.title)}</strong><p>${escapeHtml(billboard.message)}</p></div>`;
+}
 
 function createLegacyVariant(product) {
   return {
@@ -552,6 +579,23 @@ function readImageFiles(files) {
   })));
 }
 
+function readMediaFile(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !file.size) return reject(new Error("Choose an image or video."));
+    if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) return reject(new Error("Only image and video files are supported."));
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve({ type: file.type.startsWith("video/") ? "video" : "image", data: reader.result }));
+    reader.addEventListener("error", () => reject(new Error("The billboard media could not be read.")));
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderBillboardSection() {
+  const billboard = billboardStorage.getBillboard();
+  const mediaPreview = billboard.mediaType === "video" && billboard.media ? `<video src="${billboard.media}" controls></video>` : billboard.media ? `<img src="${billboard.media}" alt="Billboard preview" />` : "<p>No media selected.</p>";
+  return `<form class="billboard-admin-form" id="billboardForm"><label>Label<input name="label" value="${escapeHtml(billboard.label)}" placeholder="PROMOTION" required /></label><label>Headline<input name="title" value="${escapeHtml(billboard.title)}" placeholder="Announcement headline" required /></label><label>Message<textarea name="message" rows="3" placeholder="Discount or promotion details" required>${escapeHtml(billboard.message)}</textarea></label><label class="admin-image-upload">ADD IMAGE OR VIDEO<input name="media" id="billboardMedia" type="file" accept="image/*,video/*" required /><span id="billboardMediaName">Choose media from your files</span></label><div class="billboard-admin-preview" id="billboardAdminPreview">${mediaPreview}</div><button class="primary-btn" type="submit">PUBLISH BILL BOARD</button></form>`;
+}
+
 function renderVariantManager(productId) {
   const product = products.find((entry) => entry.id === productId);
   if (!product) return;
@@ -624,7 +668,7 @@ function renderCatalogSection() {
 function renderAdminPage(section = "overview", notice = "") {
   const orders = loadOrdersFromStorage();
   const repairs = loadRepairsFromStorage();
-  const sectionBody = section === "catalog" ? renderCatalogSection() : section === "products" ? `
+  const sectionBody = section === "bill-board" ? renderBillboardSection() : section === "catalog" ? renderCatalogSection() : section === "products" ? `
     <form class="admin-product-form" id="adminProductForm">
       <input name="name" placeholder="Product name" required />
       <select name="brand" id="adminProductBrand" aria-label="Brand" required><option value="Apple">Apple</option><option value="Samsung">Samsung</option><option value="Redmi">Redmi</option><option value="Tecno">Tecno</option><option value="Infinix">Infinix</option><option value="Other">Other</option></select>
@@ -660,7 +704,7 @@ function renderAdminPage(section = "overview", notice = "") {
     </tbody></table></div>
   ` : section === "orders" ? `<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Order ID</th><th>Customer</th><th>Amount</th><th>Payment</th><th>Status</th><th>Date</th></tr></thead><tbody>${orders.map((order) => `<tr><td>${order.orderNumber}</td><td>${order.customer.name}</td><td>${formatCurrency(order.total)}</td><td>${order.paymentMethod}</td><td>${order.status}</td><td>${new Date(order.createdAt).toLocaleDateString()}</td></tr>`).join("") || '<tr><td colspan="6">No orders yet.</td></tr>'}</tbody></table></div>` : section === "repairs" ? `<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Repair ID</th><th>Customer</th><th>Device</th><th>Problem</th><th>Status</th><th>Diagnosis</th><th>Cost</th><th>Action</th></tr></thead><tbody>${repairs.map((repair) => `<tr><td>${repair.repairId}</td><td>${repair.customer.name}</td><td>${repair.device}</td><td>${repair.problem}</td><td><select class="repair-status-select" data-id="${repair.repairId}">${REPAIR_STATUSES.map((status) => `<option ${repair.status === status ? "selected" : ""}>${status}</option>`).join("")}</select></td><td><input class="repair-inline" data-field="diagnosis" data-id="${repair.repairId}" value="${repair.diagnosis || ""}" placeholder="Add diagnosis" /></td><td><input class="repair-inline" data-field="repairCost" data-id="${repair.repairId}" type="number" min="0" value="${repair.repairCost || ""}" placeholder="Cost" /></td><td><button class="admin-action" data-action="repair-save" data-id="${repair.repairId}">UPDATE</button><a class="admin-action" href="mailto:${repair.customer.email}">CONTACT</a></td></tr>`).join("") || '<tr><td colspan="8">No repair requests yet.</td></tr>'}</tbody></table></div>` : `<div class="admin-metric-grid"><div><strong>${formatCurrency(orders.reduce((sum, order) => sum + order.total, 0))}</strong><span>Sales</span></div><div><strong>${orders.length}</strong><span>Orders</span></div><div><strong>${products.length}</strong><span>Products</span></div><div><strong>${repairs.length}</strong><span>Repairs</span></div></div>`;
 
-  adminPage.innerHTML = `<div class="container admin-shell"><div class="admin-header"><div><p class="eyebrow">OPERATIONS CONSOLE</p><h1>ARCADIA ADMIN</h1></div><div class="admin-header-actions"><span class="admin-security">Auto logout after 2 minutes idle</span><button class="admin-logout" id="adminLogout" type="button">LOG OUT OF ADMIN</button></div></div><nav class="admin-nav">${["overview", "orders", "products", "catalog", "inventory", "customers", "repairs", "reviews", "payments"].map((item) => `<a class="${section === item ? "active" : ""}" href="#admin/${item}">${item[0].toUpperCase() + item.slice(1)}</a>`).join("")}</nav>${notice ? `<p class="admin-notice">${notice}</p>` : ""}<section class="admin-section">${section === "products" ? "<h2>Products</h2>" : section === "catalog" ? "<h2>Catalog Management</h2>" : section === "orders" ? "<h2>Orders</h2>" : section === "repairs" ? "<h2>Repairs</h2>" : "<h2>Overview</h2>"}${sectionBody}</section></div>`;
+  adminPage.innerHTML = `<div class="container admin-shell"><div class="admin-header"><div><p class="eyebrow">OPERATIONS CONSOLE</p><h1>ARCADIA ADMIN</h1></div><div class="admin-header-actions"><span class="admin-security">Auto logout after 2 minutes idle</span><button class="admin-logout" id="adminLogout" type="button">LOG OUT OF ADMIN</button></div></div><nav class="admin-nav">${["overview", "orders", "products", "catalog", "bill-board", "inventory", "customers", "repairs", "reviews", "payments"].map((item) => `<a class="${section === item ? "active" : ""}" href="#admin/${item}">${item === "bill-board" ? "Bill Board" : item[0].toUpperCase() + item.slice(1)}</a>`).join("")}</nav>${notice ? `<p class="admin-notice">${notice}</p>` : ""}<section class="admin-section">${section === "products" ? "<h2>Products</h2>" : section === "catalog" ? "<h2>Catalog Management</h2>" : section === "bill-board" ? "<h2>Bill Board</h2>" : section === "orders" ? "<h2>Orders</h2>" : section === "repairs" ? "<h2>Repairs</h2>" : "<h2>Overview</h2>"}${sectionBody}</section></div>`;
 
   document.getElementById("adminLogout").addEventListener("click", async () => {
     sessionStorage.removeItem(ADMIN_SESSION_KEY);
@@ -693,6 +737,31 @@ function renderAdminPage(section = "overview", notice = "") {
     catalogStorage.saveCatalog(catalog);
     renderAdminPage("catalog", "Catalog model updated.");
   }));
+
+  const billboardForm = document.getElementById("billboardForm");
+  const billboardMediaInput = document.getElementById("billboardMedia");
+  billboardMediaInput?.addEventListener("change", async () => {
+    const file = billboardMediaInput.files?.[0];
+    if (!file) return;
+    document.getElementById("billboardMediaName").textContent = file.name;
+    try {
+      const media = await readMediaFile(file);
+      document.getElementById("billboardAdminPreview").innerHTML = media.type === "video" ? `<video src="${media.data}" controls></video>` : `<img src="${media.data}" alt="Billboard preview" />`;
+    } catch (error) {
+      billboardMediaInput.value = "";
+      document.getElementById("billboardMediaName").textContent = error.message;
+    }
+  });
+  billboardForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = new FormData(billboardForm);
+    const file = data.get("media");
+    const current = billboardStorage.getBillboard();
+    const media = file?.size ? await readMediaFile(file) : { type: current.mediaType, data: current.media };
+    billboardStorage.saveBillboard({ label: data.get("label"), title: data.get("title"), message: data.get("message"), mediaType: media.type, media: media.data });
+    renderBillboard();
+    renderAdminPage("bill-board", "Bill Board published successfully.");
+  });
 
   const productImageInput = document.getElementById("adminProductImages");
   document.getElementById("adminProductBrand")?.addEventListener("change", (event) => {
@@ -2247,6 +2316,7 @@ function initializeApp() {
     normalizeProducts();
     renderDeals();
     renderProducts();
+    renderBillboard();
     updateSeoSchema();
     updateCart();
     updateWishlistCount();
