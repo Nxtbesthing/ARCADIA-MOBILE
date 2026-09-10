@@ -1810,6 +1810,21 @@ main {
   color: var(--subtle);
 }
 
+.admin-notice-success {
+  color: #18794e;
+  animation: admin-success 520ms ease both;
+}
+
+.admin-notice-error {
+  color: #8a1c1c;
+}
+
+@keyframes admin-success {
+  0% { opacity: 0; transform: translateY(-8px); }
+  65% { opacity: 1; transform: translateY(2px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
 .admin-metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1859,6 +1874,64 @@ main {
   border: 0;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.admin-image-upload {
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px dashed var(--primary);
+  border-radius: 10px;
+  color: var(--primary);
+  font-size: 0.68rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-image-upload input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.admin-image-upload span {
+  overflow: hidden;
+  color: var(--subtle);
+  font-size: 0.68rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-image-preview {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 58px;
+}
+
+.admin-image-preview:empty {
+  display: none;
+}
+
+.admin-image-preview img {
+  width: 58px;
+  height: 58px;
+  flex: 0 0 58px;
+  object-fit: cover;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  animation: admin-preview-in 260ms ease both;
+}
+
+@keyframes admin-preview-in {
+  from { opacity: 0; transform: scale(0.86); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 .admin-table-wrap {

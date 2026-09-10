@@ -426,6 +426,21 @@ async function adminProductAction(action, productId, payload = {}) {
   if (action === "update") products = products.map((product) => product.id === productId ? { ...product, ...payload } : product);
   if (action === "create") products = [{ id: Date.now(), images: [fallbackProducts[0].images[0]], specifications: [], rating: 0, reviews: 0, stock: 0, ...payload }, ...products];
   localStorage.setItem("arcadia-admin-products", JSON.stringify(products));
+  renderDeals();
+  renderProducts();
+}
+
+function readImageFiles(files) {
+  return Promise.all(Array.from(files || []).map((file) => new Promise((resolve, reject) => {
+    if (!file.type.startsWith("image/")) {
+      reject(new Error("Only image files can be uploaded."));
+      return;
+    }
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(reader.result));
+    reader.addEventListener("error", () => reject(new Error("The image could not be read.")));
+    reader.readAsDataURL(file);
+  })));
 }
 
 function renderAdminPage(section = "overview", notice = "") {
@@ -437,7 +452,8 @@ function renderAdminPage(section = "overview", notice = "") {
       <input name="brand" placeholder="Brand" required />
       <input name="price" type="number" min="0" placeholder="Price" required />
       <input name="stock" type="number" min="0" placeholder="Stock" required />
-      <input name="image" type="url" placeholder="Image URL" />
+      <label class="admin-image-upload">CHOOSE PRODUCT IMAGES<input name="images" id="adminProductImages" type="file" accept="image/*" multiple required /><span id="adminImageFileNames">No images selected</span></label>
+      <div class="admin-image-preview" id="adminImagePreview" aria-live="polite"></div>
       <button class="primary-btn" type="submit">ADD PRODUCT</button>
     </form>
     <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Product</th><th>Price</th><th>Stock</th><th>Actions</th></tr></thead><tbody>
@@ -452,7 +468,39 @@ function renderAdminPage(section = "overview", notice = "") {
     window.location.hash = "";
   });
 
-  document.getElementById("adminProductForm")?.addEventListener("submit", async (event) => { event.preventDefault(); const data = new FormData(event.currentTarget); await adminProductAction("create", null, { name: data.get("name"), brand: data.get("brand"), price: Number(data.get("price")), stock: Number(data.get("stock")), images: [data.get("image") || fallbackProducts[0].images[0]] }); renderAdminPage("products", "Product added."); });
+  const productImageInput = document.getElementById("adminProductImages");
+  productImageInput?.addEventListener("change", async () => {
+    const preview = document.getElementById("adminImagePreview");
+    const names = document.getElementById("adminImageFileNames");
+    try {
+      const images = await readImageFiles(productImageInput.files);
+      names.textContent = `${images.length} image${images.length === 1 ? "" : "s"} selected`;
+      preview.innerHTML = images.map((image) => `<img src="${image}" alt="Selected product preview" />`).join("");
+    } catch (error) {
+      productImageInput.value = "";
+      names.textContent = error.message;
+      preview.innerHTML = "";
+    }
+  });
+  document.getElementById("adminProductForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const submitButton = form.querySelector("button[type='submit']");
+    submitButton.disabled = true;
+    try {
+      const images = await readImageFiles(data.getAll("images"));
+      if (!images.length) throw new Error("Choose at least one product image.");
+      await adminProductAction("create", null, { name: data.get("name"), brand: data.get("brand"), price: Number(data.get("price")), stock: Number(data.get("stock")), images });
+      renderAdminPage("products", "Product added successfully.");
+      adminPage.querySelector(".admin-notice")?.classList.add("admin-notice-success");
+    } catch (error) {
+      submitButton.disabled = false;
+      const existingNotice = adminPage.querySelector(".admin-notice");
+      if (existingNotice) existingNotice.textContent = error.message;
+      else form.insertAdjacentHTML("beforebegin", `<p class="admin-notice admin-notice-error">${escapeHtml(error.message)}</p>`);
+    }
+  });
   adminPage.querySelectorAll(".admin-action[data-action='delete']").forEach((button) => button.addEventListener("click", async () => { await adminProductAction("delete", Number(button.dataset.id)); renderAdminPage("products", "Product deleted."); }));
   adminPage.querySelectorAll(".admin-action[data-action='save']").forEach((button) => button.addEventListener("click", async () => { const id = Number(button.dataset.id); const price = Number(adminPage.querySelector(`.admin-inline[data-id='${id}'][data-field='price']`).value); const stock = Number(adminPage.querySelector(`.admin-inline[data-id='${id}'][data-field='stock']`).value); await adminProductAction("update", id, { price, stock }); renderAdminPage("products", "Price and stock updated."); }));
   adminPage.querySelectorAll(".admin-upload").forEach((input) => input.addEventListener("change", () => {
