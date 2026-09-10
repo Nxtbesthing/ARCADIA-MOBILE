@@ -424,7 +424,22 @@ function loadLocalAdminProducts() {
 async function adminProductAction(action, productId, payload = {}) {
   if (action === "delete") products = products.filter((product) => product.id !== productId);
   if (action === "update") products = products.map((product) => product.id === productId ? { ...product, ...payload } : product);
-  if (action === "create") products = [{ id: Date.now(), images: [fallbackProducts[0].images[0]], specifications: [], rating: 0, reviews: 0, stock: 0, ...payload }, ...products];
+  if (action === "create") {
+    const price = Number(payload.price) || 0;
+    products = [{
+      id: Date.now(),
+      images: [fallbackProducts[0].images[0]],
+      specifications: [],
+      rating: 0,
+      reviews: 0,
+      stock: 0,
+      oldPrice: price,
+      discount: 0,
+      category: "Electronics",
+      categoryKey: "all",
+      ...payload
+    }, ...products];
+  }
   localStorage.setItem("arcadia-admin-products", JSON.stringify(products));
   renderDeals();
   renderProducts();
@@ -522,7 +537,8 @@ function renderAdminPage(section = "overview", notice = "") {
 }
 
 function formatCurrency(amount) {
-  return `₦ ${amount.toLocaleString()}`;
+  const numericAmount = Number(amount);
+  return `₦ ${(Number.isFinite(numericAmount) ? numericAmount : 0).toLocaleString()}`;
 }
 
 function getFilteredProducts() {
