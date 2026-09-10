@@ -298,7 +298,11 @@ const paymentConfig = {
   verifyEndpoint: "",
   methodsEndpoint: ""
 };
-let publicPaymentMethods = [];
+const localPaymentMethods = [
+  { id: "opay-transfer", name: "OPay", accountNumber: "8020376702", accountName: "Oliver Latnie Buenyen" },
+  { id: "moniepoint-transfer", name: "Moniepoint", accountNumber: "8020376702", accountName: "Oliver Latnie Buenyen" }
+];
+let publicPaymentMethods = [...localPaymentMethods];
 const ADMIN_SESSION_KEY = "arcadia-admin-authenticated";
 const LOCAL_ADMIN_CONFIG = {
   email: "oliverbuenyen3@gmail.com",
@@ -903,7 +907,7 @@ function getCheckoutPaymentMarkup() {
   `).join("") : `
     <label class="payment-option">
       <input type="radio" name="paymentMethod" value="bank-transfer" required />
-      <span><strong>Bank transfer</strong><small>Payment details will be supplied securely by the server.</small></span>
+      <span><strong>Bank transfer</strong><small>Choose this after the account details have been provided by Arcadia.</small></span>
     </label>
   `;
 
@@ -913,6 +917,10 @@ function getCheckoutPaymentMarkup() {
       <span><strong>Pay with Paystack</strong><small>Cards, bank transfer, USSD, and supported Nigerian payment methods.</small></span>
     </label>
     ${bankMethods}
+    <label class="payment-confirmation-option">
+      <input type="checkbox" name="paymentConfirmed" value="yes" />
+      <span>I have completed the payment transfer.</span>
+    </label>
   `;
 }
 
@@ -947,7 +955,7 @@ async function loadPaymentMethods() {
     const response = await fetch(paymentConfig.methodsEndpoint);
     if (!response.ok) throw new Error(`Payment methods request failed: ${response.status}`);
     const methods = await response.json();
-    publicPaymentMethods = Array.isArray(methods) ? methods : [];
+    publicPaymentMethods = Array.isArray(methods) && methods.length ? methods : [...localPaymentMethods];
     if (window.location.hash === "#checkout") renderCheckoutPage();
   } catch (error) {
     console.warn("Secure payment methods unavailable.", error);
@@ -958,7 +966,8 @@ async function finalizeVerifiedPayment(paymentMethod, reference, formData, total
   if (!paymentConfig.verifyEndpoint) {
     return {
       orderNumber: `ARC-${Date.now()}`,
-      status: "Pending",
+      status: paymentMethod === "paystack" ? "Pending" : "Payment received",
+      paymentStatus: paymentMethod === "paystack" ? "pending" : "paid",
       createdAt: new Date().toISOString(),
       paymentMethod,
       paymentReference: reference || "local-checkout",
@@ -1041,17 +1050,35 @@ function decrementInventoryAfterOrder(items) {
 }
 
 function renderOrderConfirmation(order) {
+  const receiptText = [
+    "ARCADIA MOBILE RECEIPT",
+    `Order: ${order.orderNumber}`,
+    `Total: ${formatCurrency(order.total)}`,
+    `Payment: ${order.paymentMethod}`,
+    `Status: ${order.status}`,
+    `Customer: ${order.customer.name}`
+  ].join("\n");
+  const emailSubject = encodeURIComponent(`Arcadia Mobile receipt ${order.orderNumber}`);
+  const emailBody = encodeURIComponent(receiptText);
+  const whatsappNumber = "2348020376702";
+  const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(receiptText)}`;
+
   checkoutPage.innerHTML = `
     <div class="container confirmation-shell">
-      <div class="confirmation-mark">✓</div>
-      <p class="eyebrow">THANK YOU FOR SHOPPING WITH ARCADIA</p>
-      <h1>ORDER CONFIRMED</h1>
+      <div class="confirmation-mark" aria-label="Payment successful">✓</div>
+      <p class="eyebrow">PAYMENT SUCCESSFUL</p>
+      <h1>RECEIPT READY</h1>
       <div class="confirmation-details">
         <div><span>Order</span><strong>${order.orderNumber}</strong></div>
         <div><span>Total</span><strong>${formatCurrency(order.total)}</strong></div>
         <div><span>Status</span><strong class="status-badge">${order.status}</strong></div>
+        <div><span>Status</span><strong class="status-badge">${escapeHtml(order.status)}</strong></div>
       </div>
-      <p class="confirmation-note">We have received your order and will confirm your payment details securely.</p>
+      <p class="confirmation-note">Your payment has been recorded. Send this receipt for confirmation before continuing to shop.</p>
+      <div class="receipt-actions" aria-label="Send receipt">
+        <a class="secondary-btn" href="mailto:${encodeURIComponent(order.customer.email)}?subject=${emailSubject}&body=${emailBody}">EMAIL RECEIPT</a>
+        <a class="secondary-btn" href="${whatsappUrl}" target="_blank" rel="noopener">SEND ON WHATSAPP</a>
+      </div>
       <div class="confirmation-actions">
         <a class="primary-btn" href="#account">VIEW MY ACCOUNT</a>
         <a class="secondary-btn" href="#products">CONTINUE SHOPPING</a>
@@ -1303,6 +1330,16 @@ function renderCheckoutPage() {
   document.querySelectorAll("#checkoutForm input[name='state'], #checkoutForm input[name='city']").forEach((input) => {
     input.addEventListener("input", updateCheckoutDeliveryFee);
   });
+
+  const paymentConfirmation = document.querySelector("#checkoutForm input[name='paymentConfirmed']");
+  document.querySelectorAll("#checkoutForm input[name='paymentMethod']").forEach((input) => {
+    input.addEventListener("change", () => {
+      const isTransfer = input.checked && input.value !== "paystack";
+      paymentConfirmation.required = isTransfer;
+      paymentConfirmation.closest(".payment-confirmation-option").hidden = !isTransfer;
+    });
+  });
+  paymentConfirmation.closest(".payment-confirmation-option").hidden = true;
 
   document.getElementById("checkoutForm").addEventListener("submit", async (event) => {
     event.preventDefault();
