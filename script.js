@@ -231,18 +231,117 @@ const fallbackProducts = [
   }
 ];
 
+const IPHONE_MODELS = ["iPhone", "iPhone 6", "iPhone 6 Plus", "iPhone 6s", "iPhone 6s Plus", "iPhone SE", "iPhone 7", "iPhone 7 Plus", "iPhone 8", "iPhone 8 Plus", "iPhone X", "iPhone XR", "iPhone XS", "iPhone XS Max", "iPhone 11", "iPhone 11 Pro", "iPhone 11 Pro Max", "iPhone SE (2nd generation)", "iPhone 12 mini", "iPhone 12", "iPhone 12 Pro", "iPhone 12 Pro Max", "iPhone SE (3rd generation)", "iPhone 13 mini", "iPhone 13", "iPhone 13 Pro", "iPhone 13 Pro Max", "iPhone 14", "iPhone 14 Plus", "iPhone 14 Pro", "iPhone 14 Pro Max", "iPhone 15", "iPhone 15 Plus", "iPhone 15 Pro", "iPhone 15 Pro Max", "iPhone 16", "iPhone 16 Plus", "iPhone 16 Pro", "iPhone 16 Pro Max", "iPhone 16e", "iPhone 17", "iPhone 17 Air", "iPhone 17 Pro", "iPhone 17 Pro Max"];
+const SAMSUNG_MODELS = ["Galaxy S24", "Galaxy S24 Ultra", "Galaxy S23", "Galaxy S23 Ultra", "Galaxy S22", "Galaxy Note 20", "Galaxy Z Fold 6", "Galaxy Z Fold 5", "Galaxy Z Flip 6", "Galaxy Z Flip 5", "Galaxy A55", "Galaxy A35", "Galaxy A25", "Galaxy M55", "Galaxy M35"];
+
 let products = [...fallbackProducts];
 
 let selectedCategory = "all";
 let searchTerm = "";
+const productFilters = { brand: "", storage: "", color: "", condition: "", availability: "", minPrice: "", maxPrice: "" };
 let cart = [];
 let wishlist = [];
 let customer = null;
 let detailQuantity = 1;
+let selectedDetailVariantId = null;
 
 const CART_STORAGE_KEY = "arcadia-cart";
 const WISHLIST_STORAGE_KEY = "arcadia-wishlist";
 const CUSTOMER_STORAGE_KEY = "arcadia-customer";
+const PRODUCT_STORAGE_KEY = "arcadia-admin-products";
+const CATALOG_STORAGE_KEY = "arcadia-device-catalog";
+
+const productStorage = {
+  getProducts() {
+    try {
+      const savedProducts = JSON.parse(localStorage.getItem(PRODUCT_STORAGE_KEY) || "null");
+      return Array.isArray(savedProducts) && savedProducts.length ? savedProducts : [...fallbackProducts];
+    } catch (error) {
+      return [...fallbackProducts];
+    }
+  },
+  saveProducts(nextProducts) {
+    localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(nextProducts));
+  }
+};
+
+const catalogStorage = {
+  getCatalog() {
+    try {
+      const catalog = JSON.parse(localStorage.getItem(CATALOG_STORAGE_KEY) || "[]");
+      return Array.isArray(catalog) ? catalog : [];
+    } catch (error) {
+      return [];
+    }
+  },
+  saveCatalog(catalog) {
+    localStorage.setItem(CATALOG_STORAGE_KEY, JSON.stringify(catalog));
+  }
+};
+
+function createLegacyVariant(product) {
+  return {
+    id: `${product.id}-default`,
+    storage: product.storage || "N/A",
+    color: product.color || "N/A",
+    condition: product.condition || "New",
+    batteryHealth: product.batteryHealth || "",
+    faceId: product.faceId || "",
+    trueTone: product.trueTone || "",
+    display: product.display || "",
+    camera: product.camera || "",
+    sim: product.sim || "",
+    price: Number(product.price) || 0,
+    oldPrice: Number(product.oldPrice || product.price) || 0,
+    stock: Number(product.stock) || 0,
+    sku: product.sku || `${product.id}-DEFAULT`,
+    warranty: product.warranty || "No Warranty",
+    images: Array.isArray(product.images) ? product.images : []
+  };
+}
+
+function normalizeProduct(product) {
+  const variants = Array.isArray(product.variants) && product.variants.length
+    ? product.variants
+    : [createLegacyVariant(product)];
+  const defaultVariant = variants.find((variant) => variant.stock > 0) || variants[0];
+  return {
+    ...product,
+    variants,
+    price: Number(defaultVariant.price) || 0,
+    oldPrice: Number(defaultVariant.oldPrice || defaultVariant.price) || 0,
+    stock: variants.reduce((total, variant) => total + (Number(variant.stock) || 0), 0),
+    images: defaultVariant.images?.length ? defaultVariant.images : product.images,
+    storage: defaultVariant.storage,
+    color: defaultVariant.color,
+    condition: defaultVariant.condition,
+    warranty: defaultVariant.warranty,
+    sku: defaultVariant.sku
+  };
+}
+
+function normalizeProducts() {
+  products = products.map(normalizeProduct);
+}
+
+function getProductVariant(product, variantId) {
+  return product.variants?.find((variant) => variant.id === variantId) || product.variants?.[0] || createLegacyVariant(product);
+}
+
+function validateVariants(variants) {
+  if (!variants.length) return "Add at least one variant.";
+  const existingSkus = new Set(products.flatMap((product) => (product.variants || []).map((variant) => String(variant.sku || "").trim().toLowerCase())));
+  const submittedSkus = new Set();
+  for (const variant of variants) {
+    const sku = String(variant.sku || "").trim().toLowerCase();
+    if (!sku) return "Every variant needs a SKU.";
+    if (Number(variant.price) < 0 || !Number.isFinite(Number(variant.price))) return "Prices must be valid and cannot be negative.";
+    if (Number(variant.stock) < 0 || !Number.isFinite(Number(variant.stock))) return "Stock must be valid and cannot be negative.";
+    if (existingSkus.has(sku) || submittedSkus.has(sku)) return `SKU ${variant.sku} already exists.`;
+    submittedSkus.add(sku);
+  }
+  return "";
+}
 const ORDERS_STORAGE_KEY = "arcadia-orders";
 const REPAIRS_STORAGE_KEY = "arcadia-repairs";
 const DELIVERY_RATES = {
@@ -270,6 +369,17 @@ const productGrid = document.getElementById("productGrid");
 const dealGrid = document.getElementById("dealGrid");
 const filterButtons = document.querySelectorAll(".filter-btn");
 const searchInput = document.getElementById("searchInput");
+const filterBrand = document.getElementById("filterBrand");
+const filterModel = document.getElementById("filterModel");
+const filterStorage = document.getElementById("filterStorage");
+const filterRam = document.getElementById("filterRam");
+const filterColor = document.getElementById("filterColor");
+const filterCondition = document.getElementById("filterCondition");
+const filterAvailability = document.getElementById("filterAvailability");
+const filterMinPrice = document.getElementById("filterMinPrice");
+const filterMaxPrice = document.getElementById("filterMaxPrice");
+const clearFiltersButton = document.getElementById("clearFilters");
+const filterResultCount = document.getElementById("filterResultCount");
 const cartPanel = document.getElementById("cartPanel");
 const cartItems = document.getElementById("cartItems");
 const cartSubtotal = document.getElementById("cartSubtotal");
@@ -294,15 +404,12 @@ const adminPage = document.getElementById("adminPage");
 const homeMain = document.getElementById("home");
 
 const paymentConfig = {
-  publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || "",
-  verifyEndpoint: "",
-  methodsEndpoint: ""
+  publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || ""
 };
 const localPaymentMethods = [
   { id: "opay-transfer", name: "OPay", accountNumber: "8020376702", accountName: "Oliver Latnie Buenyen" },
   { id: "moniepoint-transfer", name: "Moniepoint", accountNumber: "8020376702", accountName: "Oliver Latnie Buenyen" }
 ];
-let publicPaymentMethods = [...localPaymentMethods];
 const ADMIN_SESSION_KEY = "arcadia-admin-authenticated";
 const LOCAL_ADMIN_CONFIG = {
   email: "oliverbuenyen3@gmail.com",
@@ -417,12 +524,7 @@ function isLocalAdminAuthenticated() {
 }
 
 function loadLocalAdminProducts() {
-  try {
-    const savedProducts = JSON.parse(localStorage.getItem("arcadia-admin-products") || "null");
-    if (Array.isArray(savedProducts) && savedProducts.length > 0) products = savedProducts;
-  } catch (error) {
-    products = [...fallbackProducts];
-  }
+  products = productStorage.getProducts();
 }
 
 async function adminProductAction(action, productId, payload = {}) {
@@ -444,13 +546,13 @@ async function adminProductAction(action, productId, payload = {}) {
       ...payload
     }, ...products];
   }
-  localStorage.setItem("arcadia-admin-products", JSON.stringify(products));
+  productStorage.saveProducts(products);
   renderDeals();
   renderProducts();
 }
 
 function readImageFiles(files) {
-  return Promise.all(Array.from(files || []).map((file) => new Promise((resolve, reject) => {
+  return Promise.all(Array.from(files || []).filter((file) => file && file.size > 0).map((file) => new Promise((resolve, reject) => {
     if (!file.type.startsWith("image/")) {
       reject(new Error("Only image files can be uploaded."));
       return;
@@ -460,34 +562,197 @@ function readImageFiles(files) {
     reader.addEventListener("error", () => reject(new Error("The image could not be read.")));
     reader.readAsDataURL(file);
   })));
+const productFilters = { brand: "", model: "", storage: "", ram: "", color: "", condition: "", availability: "", minPrice: "", maxPrice: "" };
+}
+
+function renderVariantManager(productId) {
+  const product = products.find((entry) => entry.id === productId);
+  if (!product) return;
+  const variantRows = product.variants.map((variant) => `
+    <div class="variant-manager-row">
+      <strong>${escapeHtml(variant.storage)} / ${escapeHtml(variant.color)}</strong>
+      <span>${formatCurrency(variant.price)} · Stock ${variant.stock}</span>
+      <span>${escapeHtml(variant.sku)}</span>
+      <div><button class="admin-action" data-variant-action="edit" data-variant-id="${escapeHtml(variant.id)}">EDIT</button><button class="admin-action" data-variant-action="duplicate" data-variant-id="${escapeHtml(variant.id)}">DUPLICATE</button><button class="admin-action danger" data-variant-action="delete" data-variant-id="${escapeHtml(variant.id)}">DELETE</button></div>
+    </div>
+  `).join("");
+  adminPage.insertAdjacentHTML("beforeend", `<div class="admin-variant-modal" id="variantManagerModal"><div class="admin-variant-dialog"><button class="admin-access-close" id="closeVariantManager" type="button" aria-label="Close variant manager">×</button><p class="eyebrow">PRODUCT MANAGEMENT</p><h2>${escapeHtml(product.name)} VARIANTS</h2><div class="variant-manager-list">${variantRows}</div><form class="variant-edit-form hidden" id="variantEditForm"><input type="hidden" name="variantId" /><div class="variant-edit-grid"><label>Storage<input name="storage" required /></label><label>Color<input name="color" required /></label><label>RAM<input name="ram" /></label><label>Condition<input name="condition" required /></label><label>Price<input name="price" type="number" min="0" required /></label><label>Compare-at price<input name="oldPrice" type="number" min="0" /></label><label>Stock<input name="stock" type="number" min="0" required /></label><label>SKU<input name="sku" required /></label><label>Warranty<input name="warranty" /></label><label>Battery health<input name="batteryHealth" type="number" min="0" max="100" /></label><label>Face ID<input name="faceId" /></label><label>True Tone<input name="trueTone" /></label><label>Display<input name="display" /></label><label>Battery<input name="battery" /></label><label>Camera<input name="camera" /></label><label>Speaker<input name="speaker" /></label><label>Microphone<input name="microphone" /></label><label>Charging<input name="charging" /></label><label>SIM/network<input name="sim" /></label><label class="full-field">Notes<textarea name="notes" rows="3"></textarea></label><label class="full-field">Replace image<input name="image" type="file" accept="image/*" /></label></div><div class="confirmation-actions"><button class="primary-btn" type="submit">SAVE VARIANT</button><button class="secondary-btn" id="cancelVariantEdit" type="button">CANCEL</button></div></form></div></div>`);
+
+  const modal = document.getElementById("variantManagerModal");
+  const form = document.getElementById("variantEditForm");
+  const close = () => modal.remove();
+  document.getElementById("closeVariantManager").addEventListener("click", close);
+  document.getElementById("cancelVariantEdit").addEventListener("click", () => form.classList.add("hidden"));
+  modal.querySelectorAll("[data-variant-action]").forEach((button) => button.addEventListener("click", async () => {
+    const variantId = button.dataset.variantId;
+    const variant = product.variants.find((entry) => entry.id === variantId);
+    if (!variant) return;
+    if (button.dataset.variantAction === "delete") {
+      if (product.variants.length === 1) { window.alert("A product must keep at least one variant."); return; }
+      if (!window.confirm("Delete this variant?")) return;
+      product.variants = product.variants.filter((entry) => entry.id !== variantId);
+      productStorage.saveProducts(products.map(normalizeProduct));
+      products = products.map(normalizeProduct);
+      renderVariantManager(productId);
+      renderAdminPage("products", "Variant deleted.");
+      return;
+    }
+    if (button.dataset.variantAction === "duplicate") {
+      const copy = { ...variant, id: `${variant.id}-copy-${Date.now()}`, sku: `${variant.sku}-COPY-${Date.now()}` };
+      product.variants.push(copy);
+      products = products.map(normalizeProduct);
+      productStorage.saveProducts(products);
+      renderVariantManager(productId);
+      renderAdminPage("products", "Variant duplicated.");
+      return;
+    }
+    form.classList.remove("hidden");
+    Object.entries(variant).forEach(([key, value]) => { const input = form.elements[key]; if (input && key !== "images") input.value = value ?? ""; });
+    form.elements.variantId.value = variant.id;
+  }));
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const variant = product.variants.find((entry) => entry.id === data.get("variantId"));
+    if (!variant) return;
+    const sku = String(data.get("sku")).trim();
+    const duplicateSku = products.some((entry) => entry.variants.some((item) => item.id !== variant.id && String(item.sku).toLowerCase() === sku.toLowerCase()));
+    if (duplicateSku) { window.alert("That SKU already exists."); return; }
+    Object.assign(variant, { storage: data.get("storage"), color: data.get("color"), ram: data.get("ram"), condition: data.get("condition"), price: Number(data.get("price")), oldPrice: Number(data.get("oldPrice")) || Number(data.get("price")), stock: Number(data.get("stock")), sku, warranty: data.get("warranty"), batteryHealth: data.get("batteryHealth"), faceId: data.get("faceId"), trueTone: data.get("trueTone"), display: data.get("display"), battery: data.get("battery"), camera: data.get("camera"), speaker: data.get("speaker"), microphone: data.get("microphone"), charging: data.get("charging"), sim: data.get("sim"), notes: data.get("notes") });
+    const images = await readImageFiles(data.getAll("image"));
+    if (images.length) variant.images = images;
+    products = products.map(normalizeProduct);
+    productStorage.saveProducts(products);
+    renderAdminPage("products", "Variant updated.");
+    renderProducts();
+  });
+}
+
+function renderCatalogSection() {
+  const catalog = catalogStorage.getCatalog();
+  return `<form class="catalog-manager-form" id="catalogManagerForm"><input name="brand" placeholder="Brand" required /><input name="series" placeholder="Series" required /><input name="model" placeholder="Model" required /><input name="storage" placeholder="Verified storage options, comma separated" /><input name="ram" placeholder="Verified RAM options, comma separated" /><input name="colors" placeholder="Verified colors, comma separated" /><label><input name="verified" type="checkbox" /> I have verified these options</label><button class="primary-btn" type="submit">SAVE CATALOG MODEL</button><p class="catalog-manager-note">Only mark options verified when checked against a reliable manufacturer or product reference.</p></form><div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Brand</th><th>Model</th><th>Storage</th><th>RAM</th><th>Colors</th><th>Verified</th><th>Action</th></tr></thead><tbody>${catalog.map((entry) => `<tr><td>${escapeHtml(entry.brand)}</td><td>${escapeHtml(entry.model)}</td><td>${escapeHtml(entry.storage.join(", ")) || "-"}</td><td>${escapeHtml(entry.ram.join(", ")) || "-"}</td><td>${escapeHtml(entry.colors.join(", ")) || "-"}</td><td>${entry.verified ? "Yes" : "Needs verification"}</td><td><button class="admin-action catalog-edit" data-id="${escapeHtml(entry.id)}" type="button">EDIT</button><button class="admin-action danger catalog-delete" data-id="${escapeHtml(entry.id)}" type="button">DELETE</button></td></tr>`).join("") || '<tr><td colspan="7">No catalog models saved.</td></tr>'}</tbody></table></div>`;
 }
 
 function renderAdminPage(section = "overview", notice = "") {
   const orders = loadOrdersFromStorage();
   const repairs = loadRepairsFromStorage();
-  const sectionBody = section === "products" ? `
+  const sectionBody = section === "catalog" ? renderCatalogSection() : section === "products" ? `
     <form class="admin-product-form" id="adminProductForm">
       <input name="name" placeholder="Product name" required />
-      <input name="brand" placeholder="Brand" required />
-      <input name="price" type="number" min="0" placeholder="Price" required />
-      <input name="stock" type="number" min="0" placeholder="Stock" required />
+      <select name="brand" id="adminProductBrand" aria-label="Brand" required><option value="Apple">Apple</option><option value="Samsung">Samsung</option><option value="Redmi">Redmi</option><option value="Tecno">Tecno</option><option value="Infinix">Infinix</option><option value="Other">Other</option></select>
+      <select name="model" id="adminProductModel" aria-label="Model" required>${IPHONE_MODELS.map((model) => `<option>${model}</option>`).join("")}</select>
+      <select name="categoryKey" aria-label="Product category"><option value="iphone">iPhone</option><option value="samsung">Samsung</option><option value="android">Android phone</option><option value="tablets">Tablet</option><option value="accessories">Accessory</option><option value="audio">Audio</option><option value="smartwatches">Smartwatch</option><option value="repairs">Repair service</option></select>
+      <input name="bulkStorage" placeholder="Generate storage options: 128GB, 256GB" />
+      <input name="bulkColors" placeholder="Generate colors: Midnight, Blue" />
+      <button class="admin-action" id="generateVariants" type="button">GENERATE VARIANTS</button>
+      <div class="admin-variant-builder" id="adminVariantBuilder">
+        <div class="admin-variant-row">
+          <input name="variantStorage" placeholder="Storage / RAM (e.g. 128GB)" />
+          <input name="variantColor" placeholder="Color" />
+          <select name="variantCondition" aria-label="Condition"><option>New</option><option>Like New</option><option>Excellent</option><option>Good</option><option>Fair</option><option>Refurbished</option></select>
+          <input name="variantPrice" type="number" min="0" placeholder="Price" required />
+          <input name="variantStock" type="number" min="0" placeholder="Stock" required />
+          <input name="variantSku" placeholder="SKU" required />
+          <input name="variantWarranty" placeholder="Warranty" value="No Warranty" />
+          <input name="variantBatteryHealth" type="number" min="0" max="100" placeholder="Battery % (optional)" />
+          <input name="variantFaceId" placeholder="Face ID status" />
+          <input name="variantTrueTone" placeholder="True Tone status" />
+          <input name="variantDisplay" placeholder="Display status" />
+          <input name="variantCamera" placeholder="Camera status" />
+          <input name="variantSim" placeholder="SIM / network" />
+        </div>
+      </div>
+      <button class="admin-action" id="addVariantRow" type="button">+ ADD ANOTHER VARIANT</button>
       <label class="admin-image-upload">CHOOSE PRODUCT IMAGES<input name="images" id="adminProductImages" type="file" accept="image/*" multiple required /><span id="adminImageFileNames">No images selected</span></label>
       <div class="admin-image-preview" id="adminImagePreview" aria-live="polite"></div>
       <button class="primary-btn" type="submit">ADD PRODUCT</button>
     </form>
     <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Product</th><th>Price</th><th>Stock</th><th>Actions</th></tr></thead><tbody>
-      ${products.map((product) => `<tr><td><strong>${product.name}</strong><small>${product.brand}</small></td><td><input class="admin-inline" data-field="price" data-id="${product.id}" type="number" value="${product.price}" /></td><td><input class="admin-inline" data-field="stock" data-id="${product.id}" type="number" min="0" value="${product.stock}" /></td><td><button class="admin-action" data-action="save" data-id="${product.id}">SAVE</button><button class="admin-action danger" data-action="delete" data-id="${product.id}">DELETE</button><label class="upload-label">UPLOAD IMAGES<input class="admin-upload" data-id="${product.id}" type="file" accept="image/*" multiple /></label></td></tr>`).join("")}
+      ${products.map((product) => `<tr><td><strong>${product.name}</strong><small>${product.brand} · ${product.variants?.length || 1} variant${(product.variants?.length || 1) === 1 ? "" : "s"}</small></td><td><input class="admin-inline" data-field="price" data-id="${product.id}" type="number" value="${product.price}" /></td><td><input class="admin-inline" data-field="stock" data-id="${product.id}" type="number" min="0" value="${product.stock}" /></td><td><button class="admin-action" data-action="variants" data-id="${product.id}">VARIANTS</button><button class="admin-action" data-action="save" data-id="${product.id}">SAVE</button><button class="admin-action danger" data-action="delete" data-id="${product.id}">DELETE</button><label class="upload-label">UPLOAD IMAGES<input class="admin-upload" data-id="${product.id}" type="file" accept="image/*" multiple /></label></td></tr>`).join("")}
     </tbody></table></div>
   ` : section === "orders" ? `<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Order ID</th><th>Customer</th><th>Amount</th><th>Payment</th><th>Status</th><th>Date</th></tr></thead><tbody>${orders.map((order) => `<tr><td>${order.orderNumber}</td><td>${order.customer.name}</td><td>${formatCurrency(order.total)}</td><td>${order.paymentMethod}</td><td>${order.status}</td><td>${new Date(order.createdAt).toLocaleDateString()}</td></tr>`).join("") || '<tr><td colspan="6">No orders yet.</td></tr>'}</tbody></table></div>` : section === "repairs" ? `<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Repair ID</th><th>Customer</th><th>Device</th><th>Problem</th><th>Status</th><th>Diagnosis</th><th>Cost</th><th>Action</th></tr></thead><tbody>${repairs.map((repair) => `<tr><td>${repair.repairId}</td><td>${repair.customer.name}</td><td>${repair.device}</td><td>${repair.problem}</td><td><select class="repair-status-select" data-id="${repair.repairId}">${REPAIR_STATUSES.map((status) => `<option ${repair.status === status ? "selected" : ""}>${status}</option>`).join("")}</select></td><td><input class="repair-inline" data-field="diagnosis" data-id="${repair.repairId}" value="${repair.diagnosis || ""}" placeholder="Add diagnosis" /></td><td><input class="repair-inline" data-field="repairCost" data-id="${repair.repairId}" type="number" min="0" value="${repair.repairCost || ""}" placeholder="Cost" /></td><td><button class="admin-action" data-action="repair-save" data-id="${repair.repairId}">UPDATE</button><a class="admin-action" href="mailto:${repair.customer.email}">CONTACT</a></td></tr>`).join("") || '<tr><td colspan="8">No repair requests yet.</td></tr>'}</tbody></table></div>` : `<div class="admin-metric-grid"><div><strong>${formatCurrency(orders.reduce((sum, order) => sum + order.total, 0))}</strong><span>Sales</span></div><div><strong>${orders.length}</strong><span>Orders</span></div><div><strong>${products.length}</strong><span>Products</span></div><div><strong>${repairs.length}</strong><span>Repairs</span></div></div>`;
 
-  adminPage.innerHTML = `<div class="container admin-shell"><div class="admin-header"><div><p class="eyebrow">OPERATIONS CONSOLE</p><h1>ARCADIA ADMIN</h1></div><div class="admin-header-actions"><span class="admin-security">Auto logout after 2 minutes idle</span><button class="admin-logout" id="adminLogout" type="button">LOG OUT OF ADMIN</button></div></div><nav class="admin-nav">${["overview", "orders", "products", "inventory", "customers", "repairs", "reviews", "payments"].map((item) => `<a class="${section === item ? "active" : ""}" href="#admin/${item}">${item[0].toUpperCase() + item.slice(1)}</a>`).join("")}</nav>${notice ? `<p class="admin-notice">${notice}</p>` : ""}<section class="admin-section">${section === "products" ? "<h2>Products</h2>" : section === "orders" ? "<h2>Orders</h2>" : section === "repairs" ? "<h2>Repairs</h2>" : "<h2>Overview</h2>"}${sectionBody}</section></div>`;
+  adminPage.innerHTML = `<div class="container admin-shell"><div class="admin-header"><div><p class="eyebrow">OPERATIONS CONSOLE</p><h1>ARCADIA ADMIN</h1></div><div class="admin-header-actions"><span class="admin-security">Auto logout after 2 minutes idle</span><button class="admin-logout" id="adminLogout" type="button">LOG OUT OF ADMIN</button></div></div><nav class="admin-nav">${["overview", "orders", "products", "catalog", "inventory", "customers", "repairs", "reviews", "payments"].map((item) => `<a class="${section === item ? "active" : ""}" href="#admin/${item}">${item[0].toUpperCase() + item.slice(1)}</a>`).join("")}</nav>${notice ? `<p class="admin-notice">${notice}</p>` : ""}<section class="admin-section">${section === "products" ? "<h2>Products</h2>" : section === "catalog" ? "<h2>Catalog Management</h2>" : section === "orders" ? "<h2>Orders</h2>" : section === "repairs" ? "<h2>Repairs</h2>" : "<h2>Overview</h2>"}${sectionBody}</section></div>`;
 
   document.getElementById("adminLogout").addEventListener("click", async () => {
     sessionStorage.removeItem(ADMIN_SESSION_KEY);
     window.location.hash = "";
   });
 
+  document.getElementById("catalogManagerForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const catalog = catalogStorage.getCatalog();
+    catalog.push({ id: `catalog-${Date.now()}`, brand: data.get("brand"), series: data.get("series"), model: data.get("model"), storage: String(data.get("storage") || "").split(",").map((value) => value.trim()).filter(Boolean), ram: String(data.get("ram") || "").split(",").map((value) => value.trim()).filter(Boolean), colors: String(data.get("colors") || "").split(",").map((value) => value.trim()).filter(Boolean), verified: data.get("verified") === "on" });
+    catalogStorage.saveCatalog(catalog);
+    renderAdminPage("catalog", "Catalog model saved.");
+  });
+  adminPage.querySelectorAll(".catalog-delete").forEach((button) => button.addEventListener("click", () => {
+    if (!window.confirm("Delete this catalog model?")) return;
+    catalogStorage.saveCatalog(catalogStorage.getCatalog().filter((entry) => entry.id !== button.dataset.id));
+    renderAdminPage("catalog", "Catalog model deleted.");
+  }));
+  adminPage.querySelectorAll(".catalog-edit").forEach((button) => button.addEventListener("click", () => {
+    const catalog = catalogStorage.getCatalog();
+    const entry = catalog.find((item) => item.id === button.dataset.id);
+    if (!entry) return;
+    const model = window.prompt("Model name", entry.model);
+    if (!model) return;
+    entry.model = model;
+    entry.storage = String(window.prompt("Verified storage options, comma separated", entry.storage.join(", ")) || "").split(",").map((value) => value.trim()).filter(Boolean);
+    entry.ram = String(window.prompt("Verified RAM options, comma separated", entry.ram.join(", ")) || "").split(",").map((value) => value.trim()).filter(Boolean);
+    entry.colors = String(window.prompt("Verified colors, comma separated", entry.colors.join(", ")) || "").split(",").map((value) => value.trim()).filter(Boolean);
+    catalogStorage.saveCatalog(catalog);
+    renderAdminPage("catalog", "Catalog model updated.");
+  }));
+
   const productImageInput = document.getElementById("adminProductImages");
+  document.getElementById("adminProductBrand")?.addEventListener("change", (event) => {
+    const modelInput = document.getElementById("adminProductModel");
+    const models = event.target.value === "Samsung" ? SAMSUNG_MODELS : event.target.value === "Apple" ? IPHONE_MODELS : ["Other model"];
+    modelInput.innerHTML = models.map((model) => `<option>${model}</option>`).join("");
+  });
+  document.getElementById("addVariantRow")?.addEventListener("click", () => {
+    document.getElementById("adminVariantBuilder").insertAdjacentHTML("beforeend", `
+      <div class="admin-variant-row">
+        <input name="variantStorage" placeholder="Storage / RAM" />
+        <input name="variantColor" placeholder="Color" />
+        <select name="variantCondition" aria-label="Condition"><option>New</option><option>Like New</option><option>Excellent</option><option>Good</option><option>Fair</option><option>Refurbished</option></select>
+        <input name="variantPrice" type="number" min="0" placeholder="Price" required />
+        <input name="variantStock" type="number" min="0" placeholder="Stock" required />
+        <input name="variantSku" placeholder="SKU" required />
+        <input name="variantWarranty" placeholder="Warranty" value="No Warranty" />
+        <input name="variantBatteryHealth" type="number" min="0" max="100" placeholder="Battery % (optional)" />
+        <input name="variantFaceId" placeholder="Face ID status" />
+        <input name="variantTrueTone" placeholder="True Tone status" />
+        <input name="variantDisplay" placeholder="Display status" />
+        <input name="variantCamera" placeholder="Camera status" />
+        <input name="variantSim" placeholder="SIM / network" />
+        <button class="admin-action danger remove-variant-row" type="button">REMOVE</button>
+      </div>
+    `);
+    adminPage.querySelectorAll(".remove-variant-row").forEach((button) => button.addEventListener("click", () => button.parentElement.remove()));
+  });
+  document.getElementById("generateVariants")?.addEventListener("click", () => {
+    const storageValues = document.querySelector("[name='bulkStorage']").value.split(",").map((value) => value.trim()).filter(Boolean);
+    const colorValues = document.querySelector("[name='bulkColors']").value.split(",").map((value) => value.trim()).filter(Boolean);
+    if (!storageValues.length || !colorValues.length) return;
+    const builder = document.getElementById("adminVariantBuilder");
+    builder.innerHTML = storageValues.flatMap((storage) => colorValues.map((color) => `
+      <div class="admin-variant-row">
+        <input name="variantStorage" value="${escapeHtml(storage)}" />
+        <input name="variantColor" value="${escapeHtml(color)}" />
+        <select name="variantCondition" aria-label="Condition"><option>New</option><option>Like New</option><option>Excellent</option><option>Good</option><option>Fair</option><option>Refurbished</option></select>
+        <input name="variantPrice" type="number" min="0" placeholder="Price" required />
+        <input name="variantStock" type="number" min="0" placeholder="Stock" required />
+        <input name="variantSku" value="ARC-${String(document.querySelector("[name='model']").value).replace(/[^a-z0-9]/gi, "").toUpperCase()}-${storage.replace(/[^a-z0-9]/gi, "").toUpperCase()}-${color.replace(/[^a-z0-9]/gi, "").toUpperCase()}" required />
+        <input name="variantWarranty" placeholder="Warranty" value="No Warranty" />
+        <input name="variantBatteryHealth" type="number" min="0" max="100" placeholder="Battery % (optional)" />
+        <input name="variantFaceId" placeholder="Face ID status" /><input name="variantTrueTone" placeholder="True Tone status" /><input name="variantDisplay" placeholder="Display status" /><input name="variantCamera" placeholder="Camera status" /><input name="variantSim" placeholder="SIM / network" />
+      </div>
+    `)).join("");
+  });
   productImageInput?.addEventListener("change", async () => {
     const preview = document.getElementById("adminImagePreview");
     const names = document.getElementById("adminImageFileNames");
@@ -510,7 +775,28 @@ function renderAdminPage(section = "overview", notice = "") {
     try {
       const images = await readImageFiles(data.getAll("images"));
       if (!images.length) throw new Error("Choose at least one product image.");
-      await adminProductAction("create", null, { name: data.get("name"), brand: data.get("brand"), price: Number(data.get("price")), stock: Number(data.get("stock")), images });
+      const variantRows = data.getAll("variantStorage").map((storage, index) => ({
+        id: `${Date.now()}-${index}-${String(data.getAll("variantSku")[index]).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+        storage: storage || "N/A",
+        color: data.getAll("variantColor")[index] || "N/A",
+        condition: data.getAll("variantCondition")[index],
+        price: Number(data.getAll("variantPrice")[index]) || 0,
+        oldPrice: Number(data.getAll("variantPrice")[index]) || 0,
+        stock: Number(data.getAll("variantStock")[index]) || 0,
+        sku: data.getAll("variantSku")[index],
+        warranty: data.getAll("variantWarranty")[index] || "No Warranty",
+        batteryHealth: data.getAll("variantBatteryHealth")[index] || "",
+        faceId: data.getAll("variantFaceId")[index] || "",
+        trueTone: data.getAll("variantTrueTone")[index] || "",
+        display: data.getAll("variantDisplay")[index] || "",
+        camera: data.getAll("variantCamera")[index] || "",
+        sim: data.getAll("variantSim")[index] || "",
+        images
+      }));
+      const firstVariant = variantRows[0];
+      const validationMessage = validateVariants(variantRows);
+      if (validationMessage) throw new Error(validationMessage);
+      await adminProductAction("create", null, { name: data.get("model") || data.get("name"), brand: data.get("brand"), category: data.get("categoryKey"), categoryKey: data.get("categoryKey"), price: firstVariant.price, stock: variantRows.reduce((sum, variant) => sum + variant.stock, 0), storage: firstVariant.storage, color: firstVariant.color, condition: firstVariant.condition, sku: firstVariant.sku, warranty: firstVariant.warranty, images, variants: variantRows });
       renderAdminPage("products", "Product added successfully.");
       adminPage.querySelector(".admin-notice")?.classList.add("admin-notice-success");
     } catch (error) {
@@ -521,7 +807,8 @@ function renderAdminPage(section = "overview", notice = "") {
     }
   });
   adminPage.querySelectorAll(".admin-action[data-action='delete']").forEach((button) => button.addEventListener("click", async () => { await adminProductAction("delete", Number(button.dataset.id)); renderAdminPage("products", "Product deleted."); }));
-  adminPage.querySelectorAll(".admin-action[data-action='save']").forEach((button) => button.addEventListener("click", async () => { const id = Number(button.dataset.id); const price = Number(adminPage.querySelector(`.admin-inline[data-id='${id}'][data-field='price']`).value); const stock = Number(adminPage.querySelector(`.admin-inline[data-id='${id}'][data-field='stock']`).value); await adminProductAction("update", id, { price, stock }); renderAdminPage("products", "Price and stock updated."); }));
+  adminPage.querySelectorAll(".admin-action[data-action='save']").forEach((button) => button.addEventListener("click", async () => { const id = Number(button.dataset.id); const price = Number(adminPage.querySelector(`.admin-inline[data-id='${id}'][data-field='price']`).value); const stock = Number(adminPage.querySelector(`.admin-inline[data-id='${id}'][data-field='stock']`).value); const product = products.find((entry) => entry.id === id); const firstVariant = product?.variants?.[0]; if (firstVariant) { firstVariant.price = price; firstVariant.stock = stock; } await adminProductAction("update", id, { price, stock, variants: product?.variants }); renderAdminPage("products", "Price and stock updated."); }));
+  adminPage.querySelectorAll(".admin-action[data-action='variants']").forEach((button) => button.addEventListener("click", () => renderVariantManager(Number(button.dataset.id))));
   adminPage.querySelectorAll(".admin-upload").forEach((input) => input.addEventListener("change", () => {
     const file = input.files?.[0];
     if (!file) return;
@@ -531,7 +818,7 @@ function renderAdminPage(section = "overview", notice = "") {
       const product = products.find((item) => item.id === productId);
       if (!product) return;
       product.images = [reader.result];
-      localStorage.setItem("arcadia-admin-products", JSON.stringify(products));
+      productStorage.saveProducts(products);
       renderAdminPage("products", "Image uploaded to the local catalog.");
     });
     reader.readAsDataURL(file);
@@ -560,13 +847,41 @@ function getFilteredProducts() {
       product.color,
       product.warranty,
       product.sku,
+      ...(product.variants || []).flatMap((variant) => [variant.storage, variant.color, variant.condition, variant.sku, variant.warranty]),
       ...(product.specifications || [])
     ]
       .join(" ")
       .toLowerCase();
 
     const matchesSearch = combinedText.includes(searchTerm.trim().toLowerCase());
-    return matchesCategory && matchesSearch;
+    const variants = product.variants || [];
+    const matchesBrand = !productFilters.brand || product.brand === productFilters.brand;
+    const matchesModel = !productFilters.model || product.name.toLowerCase().includes(productFilters.model.toLowerCase());
+    const matchesStorage = !productFilters.storage || variants.some((variant) => variant.storage === productFilters.storage);
+    const matchesRam = !productFilters.ram || variants.some((variant) => variant.ram === productFilters.ram);
+    const matchesColor = !productFilters.color || variants.some((variant) => variant.color === productFilters.color);
+    const matchesCondition = !productFilters.condition || variants.some((variant) => variant.condition === productFilters.condition);
+    const matchesAvailability = !productFilters.availability || variants.some((variant) => productFilters.availability === "available" ? variant.stock > 0 : variant.stock <= 0);
+    const minPrice = Number(productFilters.minPrice);
+    const maxPrice = Number(productFilters.maxPrice);
+    const matchesPrice = variants.some((variant) => (!productFilters.minPrice || variant.price >= minPrice) && (!productFilters.maxPrice || variant.price <= maxPrice));
+    return matchesCategory && matchesSearch && matchesBrand && matchesModel && matchesStorage && matchesRam && matchesColor && matchesCondition && matchesAvailability && matchesPrice;
+  });
+}
+
+function populateProductFilters() {
+  const values = {
+    brand: [...new Set(products.map((product) => product.brand).filter(Boolean))],
+    storage: [...new Set(products.flatMap((product) => product.variants?.map((variant) => variant.storage) || []))].filter(Boolean),
+    ram: [...new Set(products.flatMap((product) => product.variants?.map((variant) => variant.ram) || []))].filter(Boolean),
+    color: [...new Set(products.flatMap((product) => product.variants?.map((variant) => variant.color) || []))].filter(Boolean),
+    condition: [...new Set(products.flatMap((product) => product.variants?.map((variant) => variant.condition) || []))].filter(Boolean)
+  };
+  [[filterBrand, values.brand], [filterStorage, values.storage], [filterRam, values.ram], [filterColor, values.color], [filterCondition, values.condition]].forEach(([select, options]) => {
+    if (!select) return;
+    const currentValue = select.value;
+    select.innerHTML = `<option value="">All ${select.id.replace("filter", "").toLowerCase()}</option>${options.sort().map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("")}`;
+    select.value = currentValue;
   });
 }
 
@@ -672,6 +987,7 @@ function renderDeals() {
 
 function renderProducts() {
   const items = getFilteredProducts();
+  if (filterResultCount) filterResultCount.textContent = `${items.length} matching product${items.length === 1 ? "" : "s"}`;
 
   if (items.length === 0) {
     productGrid.innerHTML = `
@@ -894,22 +1210,13 @@ function renderAccountPage() {
   });
 }
 
-function getPaymentMethods() {
-  return Array.isArray(window.ARCADIA_PAYMENT_METHODS) ? window.ARCADIA_PAYMENT_METHODS : [];
-}
-
 function getCheckoutPaymentMarkup() {
-  const bankMethods = publicPaymentMethods.length > 0 ? publicPaymentMethods.map((method) => `
+  const bankMethods = localPaymentMethods.map((method) => `
     <label class="payment-option">
       <input type="radio" name="paymentMethod" value="${method.id}" required />
       <span><strong>${method.name}</strong><small>Account: ${method.accountNumber} | Name: ${method.accountName}</small></span>
     </label>
-  `).join("") : `
-    <label class="payment-option">
-      <input type="radio" name="paymentMethod" value="bank-transfer" required />
-      <span><strong>Bank transfer</strong><small>Choose this after the account details have been provided by Arcadia.</small></span>
-    </label>
-  `;
+  `).join("");
 
   return `
     <label class="payment-option payment-option-primary">
@@ -949,68 +1256,27 @@ function updateCheckoutDeliveryFee() {
   document.getElementById("checkoutTotal").textContent = formatCurrency(subtotal + delivery);
 }
 
-async function loadPaymentMethods() {
-  if (!paymentConfig.methodsEndpoint) return;
-  try {
-    const response = await fetch(paymentConfig.methodsEndpoint);
-    if (!response.ok) throw new Error(`Payment methods request failed: ${response.status}`);
-    const methods = await response.json();
-    publicPaymentMethods = Array.isArray(methods) && methods.length ? methods : [...localPaymentMethods];
-    if (window.location.hash === "#checkout") renderCheckoutPage();
-  } catch (error) {
-    console.warn("Secure payment methods unavailable.", error);
-  }
-}
-
-async function finalizeVerifiedPayment(paymentMethod, reference, formData, total) {
-  if (!paymentConfig.verifyEndpoint) {
-    return {
-      orderNumber: `ARC-${Date.now()}`,
-      status: paymentMethod === "paystack" ? "Pending" : "Payment received",
-      paymentStatus: paymentMethod === "paystack" ? "pending" : "paid",
-      createdAt: new Date().toISOString(),
-      paymentMethod,
-      paymentReference: reference || "local-checkout",
-      total,
-      customer: {
-        name: formData.get("name"),
-        phone: formData.get("phone"),
-        email: formData.get("email")
-      },
-      delivery: {
-        state: formData.get("state"),
-        city: formData.get("city"),
-        address: formData.get("address")
-      },
-      items: cart.map((item) => ({ ...item }))
-    };
-  }
-
-  const response = await fetch(paymentConfig.verifyEndpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      reference,
-      paymentMethod,
-      expectedAmount: total,
-      customer: {
-        name: formData.get("name"),
-        phone: formData.get("phone"),
-        email: formData.get("email")
-      },
-      delivery: {
-        state: formData.get("state"),
-        city: formData.get("city"),
-        address: formData.get("address")
-      },
-      items: cart.map((item) => ({ id: item.id, quantity: item.quantity }))
-    })
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok || !result.verified || !result.order) {
-    throw new Error(result.message || "Payment could not be verified.");
-  }
-  return result.order;
+function createLocalOrder(paymentMethod, reference, formData, total) {
+  return {
+    orderNumber: `ARC-${Date.now()}`,
+    status: paymentMethod === "paystack" ? "Pending" : "Payment received",
+    paymentStatus: paymentMethod === "paystack" ? "pending" : "paid",
+    createdAt: new Date().toISOString(),
+    paymentMethod,
+    paymentReference: reference || "local-checkout",
+    total,
+    customer: {
+      name: formData.get("name"),
+      phone: formData.get("phone"),
+      email: formData.get("email")
+    },
+    delivery: {
+      state: formData.get("state"),
+      city: formData.get("city"),
+      address: formData.get("address")
+    },
+    items: cart.map((item) => ({ ...item }))
+  };
 }
 
 function loadOrdersFromStorage() {
@@ -1043,8 +1309,10 @@ function decrementInventoryAfterOrder(items) {
   items.forEach((item) => {
     const product = products.find((entry) => entry.id === item.id);
     if (product) product.stock = Math.max(0, product.stock - item.quantity);
+    const variant = product?.variants?.find((entry) => entry.id === item.variantId);
+    if (variant) variant.stock = Math.max(0, variant.stock - item.quantity);
   });
-  localStorage.setItem("arcadia-admin-products", JSON.stringify(products));
+  productStorage.saveProducts(products);
   renderDeals();
   renderProducts();
 }
@@ -1305,7 +1573,7 @@ function renderCheckoutPage() {
           <section class="checkout-section">
             <h2>Payment</h2>
             <div class="payment-options">${paymentMarkup}</div>
-            <p class="payment-note">Payment verification and order creation happen on the secure server before stock is reduced.</p>
+            <p class="payment-note">After transferring payment, confirm it below to create your local order receipt.</p>
           </section>
           <button class="primary-btn place-order-btn" type="submit">PLACE ORDER</button>
           <p class="form-message" id="checkoutMessage" role="status"></p>
@@ -1354,7 +1622,7 @@ function renderCheckoutPage() {
 
     const completePayment = async (reference) => {
       try {
-        const order = await finalizeVerifiedPayment(paymentMethod, reference, formData, currentTotal);
+        const order = createLocalOrder(paymentMethod, reference, formData, currentTotal);
         saveOrder(order);
         decrementInventoryAfterOrder(cart);
         cart = [];
@@ -1439,14 +1707,20 @@ function openProductDetail(productId) {
   if (!product) return;
 
   detailQuantity = 1;
+  selectedDetailVariantId = product.variants?.[0]?.id || `${product.id}-default`;
   const route = `#product-${product.id}`;
   window.location.hash = route;
   renderProductDetail(product);
   showDetailView();
 }
 
-function renderProductDetail(product) {
-  const thumbs = (product.images || []).map((image, index) => `
+function renderProductDetail(product, variantId = selectedDetailVariantId) {
+  const variant = getProductVariant(product, variantId);
+  selectedDetailVariantId = variant.id;
+  const variantImages = variant.images?.length ? variant.images : product.images || [];
+  const variants = product.variants || [variant];
+  const uniqueValues = (key) => [...new Set(variants.map((entry) => entry[key]).filter(Boolean))];
+  const thumbs = variantImages.map((image, index) => `
     <button class="thumb-btn ${index === 0 ? "active" : ""}" type="button" data-image="${image}" aria-label="View image ${index + 1}">
       ${createResponsiveImageMarkup(image, `${product.name} view ${index + 1}`, { width: 180, height: 160, loading: "lazy" })}
     </button>
@@ -1459,7 +1733,7 @@ function renderProductDetail(product) {
       <div class="detail-layout">
         <div class="detail-gallery">
           <div class="detail-main-image">
-            ${createResponsiveImageMarkup(product.images[0], product.name, { width: 900, height: 700, loading: "eager" })}
+            <div id="detailMainImage">${createResponsiveImageMarkup(variantImages[0], product.name, { width: 900, height: 700, loading: "eager" })}</div>
           </div>
           <div class="detail-thumbs">${thumbs}</div>
         </div>
@@ -1474,20 +1748,36 @@ function renderProductDetail(product) {
           </div>
 
           <div class="detail-price-block">
-            <span class="detail-price">${formatCurrency(product.price)}</span>
-            <span class="detail-old-price">${formatCurrency(product.oldPrice)}</span>
-            <span class="detail-discount">Save ${product.discount}%</span>
+            <span class="detail-price">${formatCurrency(variant.price)}</span>
+            <span class="detail-old-price">${formatCurrency(variant.oldPrice)}</span>
+            <span class="detail-discount">SKU ${escapeHtml(variant.sku)}</span>
           </div>
 
           <div class="detail-stock-row">
-            <span class="detail-stock">${product.stock > 0 ? `Stock: ${product.stock}` : "OUT OF STOCK"}</span>
-            <span class="detail-condition">${product.condition}</span>
+            <span class="detail-stock">${variant.stock > 0 ? `Stock: ${variant.stock}` : "OUT OF STOCK"}</span>
+            <span class="detail-condition">${escapeHtml(variant.condition)}</span>
+          </div>
+
+          <div class="variant-selector-group">
+            <strong>Storage</strong>
+            <div class="variant-options">${uniqueValues("storage").map((value) => `<button type="button" class="variant-option ${variant.storage === value ? "active" : ""}" data-variant-field="storage" data-value="${escapeHtml(value)}">${escapeHtml(value)}</button>`).join("")}</div>
+          </div>
+          <div class="variant-selector-group">
+            <strong>Color</strong>
+            <div class="variant-options">${uniqueValues("color").map((value) => `<button type="button" class="variant-option ${variant.color === value ? "active" : ""}" data-variant-field="color" data-value="${escapeHtml(value)}">${escapeHtml(value)}</button>`).join("")}</div>
           </div>
 
           <div class="detail-meta-list">
-            <div><span>Storage</span><strong>${product.storage}</strong></div>
-            <div><span>Color</span><strong>${product.color}</strong></div>
-            <div><span>SKU</span><strong>${product.sku}</strong></div>
+            <div><span>Storage</span><strong>${escapeHtml(variant.storage)}</strong></div>
+            <div><span>Color</span><strong>${escapeHtml(variant.color)}</strong></div>
+            <div><span>SKU</span><strong>${escapeHtml(variant.sku)}</strong></div>
+            <div><span>Warranty</span><strong>${escapeHtml(variant.warranty)}</strong></div>
+            ${variant.batteryHealth ? `<div><span>Battery health</span><strong>${escapeHtml(variant.batteryHealth)}</strong></div>` : ""}
+            ${variant.faceId ? `<div><span>Face ID</span><strong>${escapeHtml(variant.faceId)}</strong></div>` : ""}
+            ${variant.trueTone ? `<div><span>True Tone</span><strong>${escapeHtml(variant.trueTone)}</strong></div>` : ""}
+            ${variant.display ? `<div><span>Display</span><strong>${escapeHtml(variant.display)}</strong></div>` : ""}
+            ${variant.camera ? `<div><span>Camera</span><strong>${escapeHtml(variant.camera)}</strong></div>` : ""}
+            ${variant.sim ? `<div><span>SIM / network</span><strong>${escapeHtml(variant.sim)}</strong></div>` : ""}
           </div>
 
           <div class="quantity-row">
@@ -1500,8 +1790,8 @@ function renderProductDetail(product) {
           </div>
 
           <div class="detail-actions">
-            <button class="primary-btn detail-primary" type="button" data-product-id="${product.id}" ${product.stock <= 0 ? "disabled" : ""}>${product.stock > 0 ? "ADD TO CART" : "OUT OF STOCK"}</button>
-            <button class="secondary-btn detail-secondary" type="button">BUY NOW</button>
+            <button class="primary-btn detail-primary" type="button" data-product-id="${product.id}" data-variant-id="${escapeHtml(variant.id)}" ${variant.stock <= 0 ? "disabled" : ""}>${variant.stock > 0 ? "ADD TO CART" : "OUT OF STOCK"}</button>
+            <button class="secondary-btn detail-secondary" type="button" data-product-id="${product.id}" data-variant-id="${escapeHtml(variant.id)}" ${variant.stock <= 0 ? "disabled" : ""}>BUY NOW</button>
           </div>
         </div>
       </div>
@@ -1539,8 +1829,17 @@ function renderProductDetail(product) {
   document.querySelectorAll(".thumb-btn").forEach((button) => {
     button.addEventListener("click", () => {
       const nextImage = button.dataset.image;
-      mainImage.src = nextImage;
+      mainImage.querySelector("img").src = nextImage;
       document.querySelectorAll(".thumb-btn").forEach((thumb) => thumb.classList.toggle("active", thumb === button));
+    });
+  });
+
+  document.querySelectorAll(".variant-option").forEach((button) => {
+    button.addEventListener("click", () => {
+      const field = button.dataset.variantField;
+      const candidate = variants.find((entry) => entry[field] === button.dataset.value && (field === "storage" ? entry.color === variant.color : entry.storage === variant.storage))
+        || variants.find((entry) => entry[field] === button.dataset.value);
+      if (candidate) renderProductDetail(product, candidate.id);
     });
   });
 
@@ -1560,8 +1859,13 @@ function renderProductDetail(product) {
   });
 
   document.querySelector(".detail-primary")?.addEventListener("click", () => {
-    const targetId = Number(document.querySelector(".detail-primary").dataset.productId);
-    addToCart(targetId, detailQuantity);
+    const button = document.querySelector(".detail-primary");
+    addToCart(Number(button.dataset.productId), detailQuantity, button.dataset.variantId);
+  });
+  document.querySelector(".detail-secondary")?.addEventListener("click", () => {
+    const button = document.querySelector(".detail-secondary");
+    addToCart(Number(button.dataset.productId), detailQuantity, button.dataset.variantId);
+    window.location.hash = "checkout";
   });
 }
 
@@ -1769,22 +2073,23 @@ function saveCartToStorage() {
 function loadCartFromStorage() {
   try {
     const savedCart = JSON.parse(localStorage.getItem(CART_STORAGE_KEY) || "[]");
-    cart = Array.isArray(savedCart) ? savedCart : [];
+    cart = Array.isArray(savedCart) ? savedCart.map((item) => ({ ...item, variantId: item.variantId || `${item.id}-default` })) : [];
   } catch (error) {
     cart = [];
   }
 }
 
-function addToCart(productId, quantity = 1) {
+function addToCart(productId, quantity = 1, variantId = null) {
   const product = products.find((item) => item.id === productId);
-  if (!product || product.stock <= 0) return;
+  const variant = product ? getProductVariant(product, variantId) : null;
+  if (!product || !variant || variant.stock <= 0) return;
 
-  const existing = cart.find((item) => item.id === productId);
+  const existing = cart.find((item) => item.id === productId && item.variantId === variant.id);
 
   if (existing) {
-    existing.quantity = Math.min(product.stock, existing.quantity + quantity);
+    existing.quantity = Math.min(variant.stock, existing.quantity + quantity);
   } else {
-    cart.push({ ...product, quantity: Math.min(product.stock, quantity) });
+    cart.push({ ...product, ...variant, name: product.name, brand: product.brand, variantId: variant.id, quantity: Math.min(variant.stock, quantity) });
   }
 
   saveCartToStorage();
@@ -1792,25 +2097,26 @@ function addToCart(productId, quantity = 1) {
   cartPanel.classList.add("open");
 }
 
-function changeQuantity(productId, change) {
-  const item = cart.find((entry) => entry.id === productId);
+function changeQuantity(productId, change, variantId = null) {
+  const item = cart.find((entry) => entry.id === productId && entry.variantId === variantId);
   if (!item) return;
 
   const product = products.find((entry) => entry.id === productId);
   if (!product) return;
 
-  item.quantity = Math.min(product.stock, item.quantity + change);
+  const variant = getProductVariant(product, item.variantId);
+  item.quantity = Math.min(variant.stock, item.quantity + change);
 
   if (item.quantity <= 0) {
-    cart = cart.filter((entry) => entry.id !== productId);
+    cart = cart.filter((entry) => !(entry.id === productId && entry.variantId === item.variantId));
   }
 
   saveCartToStorage();
   updateCart();
 }
 
-function removeFromCart(productId) {
-  cart = cart.filter((item) => item.id !== productId);
+function removeFromCart(productId, variantId = null) {
+  cart = cart.filter((item) => !(item.id === productId && item.variantId === variantId));
   saveCartToStorage();
   updateCart();
 }
@@ -1840,15 +2146,16 @@ function updateCart() {
         <div class="cart-item">
           <div class="cart-item-copy">
             <strong>${item.name}</strong>
+            <span>${[item.storage, item.color, item.condition].filter((value) => value && value !== "N/A").join(" / ")}</span>
             <span>${formatCurrency(item.price)}</span>
           </div>
           <div class="cart-item-actions">
             <div class="cart-qty-box">
-              <button type="button" class="qty-adjust" data-action="decrease" data-id="${item.id}">−</button>
+              <button type="button" class="qty-adjust" data-action="decrease" data-id="${item.id}" data-variant-id="${item.variantId}">−</button>
               <span>${item.quantity}</span>
-              <button type="button" class="qty-adjust" data-action="increase" data-id="${item.id}">+</button>
+              <button type="button" class="qty-adjust" data-action="increase" data-id="${item.id}" data-variant-id="${item.variantId}">+</button>
             </div>
-            <button class="remove-item" type="button" data-id="${item.id}">Remove</button>
+            <button class="remove-item" type="button" data-id="${item.id}" data-variant-id="${item.variantId}">Remove</button>
           </div>
         </div>
       `
@@ -1859,13 +2166,13 @@ function updateCart() {
     button.addEventListener("click", () => {
       const productId = Number(button.dataset.id);
       const action = button.dataset.action;
-      changeQuantity(productId, action === "increase" ? 1 : -1);
+      changeQuantity(productId, action === "increase" ? 1 : -1, button.dataset.variantId);
     });
   });
 
   document.querySelectorAll(".remove-item").forEach((button) => {
     button.addEventListener("click", () => {
-      removeFromCart(Number(button.dataset.id));
+      removeFromCart(Number(button.dataset.id), button.dataset.variantId);
     });
   });
 }
@@ -1880,6 +2187,23 @@ filterButtons.forEach((button) => {
 
 searchInput.addEventListener("input", (event) => {
   searchTerm = event.target.value;
+  renderProducts();
+});
+
+[filterBrand, filterStorage, filterRam, filterColor, filterCondition, filterAvailability].forEach((select) => select?.addEventListener("change", () => {
+  const key = select.id.replace("filter", "").toLowerCase();
+  productFilters[key] = select.value;
+  renderProducts();
+}));
+[filterModel, filterMinPrice, filterMaxPrice].forEach((input) => input?.addEventListener("input", () => {
+  productFilters[input.id === "filterModel" ? "model" : input.id === "filterMinPrice" ? "minPrice" : "maxPrice"] = input.value;
+  renderProducts();
+}));
+clearFiltersButton?.addEventListener("click", () => {
+  Object.keys(productFilters).forEach((key) => { productFilters[key] = ""; });
+  [filterBrand, filterModel, filterStorage, filterRam, filterColor, filterCondition, filterAvailability, filterMinPrice, filterMaxPrice].forEach((input) => { if (input) input.value = ""; });
+  selectedCategory = "all";
+  filterButtons.forEach((button) => button.classList.toggle("active", button.dataset.category === "all"));
   renderProducts();
 });
 
@@ -1947,6 +2271,8 @@ function initializeApp() {
     enforceAuthorizedAdminAccess();
     syncAdminButtonState();
     loadLocalAdminProducts();
+    normalizeProducts();
+    populateProductFilters();
     renderDeals();
     renderProducts();
     updateSeoSchema();
@@ -1954,7 +2280,6 @@ function initializeApp() {
     updateWishlistCount();
     handleHashRouting();
     if (!HOME_SECTION_HASHES.includes(window.location.hash)) window.setTimeout(resetPagePosition, 100);
-    loadPaymentMethods();
   } catch (error) {
     console.error("App initialization failed:", error);
   } finally {

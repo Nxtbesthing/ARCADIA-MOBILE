@@ -551,6 +551,33 @@ main {
   gap: 22px;
 }
 
+.catalog-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  align-items: center;
+  margin: 0 0 24px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.catalog-filters select,
+.catalog-filters input {
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--text);
+}
+
+.filter-result-count {
+  color: var(--subtle);
+  font-size: 0.78rem;
+}
+
 .product-card {
   background: rgba(255, 255, 255, 0.9);
   border: 1px solid rgba(17, 17, 17, 0.05);
@@ -1858,7 +1885,33 @@ main {
   margin-bottom: 18px;
 }
 
+.catalog-manager-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.catalog-manager-form input:not([type="checkbox"]) {
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.catalog-manager-form label,
+.catalog-manager-note {
+  color: var(--subtle);
+  font-size: 0.78rem;
+}
+
+.catalog-manager-note {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
 .admin-product-form input,
+.admin-product-form select,
 .admin-inline,
 .repair-status-select,
 .repair-inline {
@@ -1874,6 +1927,27 @@ main {
   border: 0;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.admin-variant-builder {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 8px;
+}
+
+.admin-variant-row {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.admin-variant-row .remove-variant-row {
+  grid-column: 1 / -1;
+  justify-self: start;
 }
 
 .admin-image-upload {
@@ -2019,6 +2093,79 @@ main {
   border-radius: 22px;
   background: #fff;
   box-shadow: 0 28px 70px rgba(0, 0, 0, 0.22);
+}
+
+.admin-variant-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 320;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.58);
+}
+
+.admin-variant-dialog {
+  position: relative;
+  width: min(980px, 100%);
+  max-height: min(88vh, 760px);
+  overflow: auto;
+  padding: 30px;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.22);
+}
+
+.admin-variant-dialog h2 {
+  margin: 0 0 18px;
+}
+
+.variant-manager-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.variant-manager-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.variant-manager-row span {
+  color: var(--subtle);
+  font-size: 0.78rem;
+}
+
+.variant-edit-form.hidden {
+  display: none;
+}
+
+.variant-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.variant-edit-grid label {
+  display: grid;
+  gap: 6px;
+  color: var(--subtle);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.variant-edit-grid input,
+.variant-edit-grid textarea {
+  width: 100%;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--text);
 }
 
 .admin-access-close {
@@ -2855,6 +3002,10 @@ main {
     grid-template-columns: 1fr;
   }
 
+  .catalog-filters {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .order-summary {
     position: static;
   }
@@ -2880,6 +3031,23 @@ main {
 
   .admin-metric-grid,
   .admin-product-form {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-variant-row {
+    grid-template-columns: 1fr;
+  }
+
+  .catalog-manager-form {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-variant-dialog {
+    padding: 22px 16px;
+  }
+
+  .variant-manager-row,
+  .variant-edit-grid {
     grid-template-columns: 1fr;
   }
 
