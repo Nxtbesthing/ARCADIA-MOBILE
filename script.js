@@ -238,7 +238,6 @@ let products = [...fallbackProducts];
 
 let selectedCategory = "all";
 let searchTerm = "";
-const productFilters = { brand: "", storage: "", color: "", condition: "", availability: "", minPrice: "", maxPrice: "" };
 let cart = [];
 let wishlist = [];
 let customer = null;
@@ -369,17 +368,6 @@ const productGrid = document.getElementById("productGrid");
 const dealGrid = document.getElementById("dealGrid");
 const filterButtons = document.querySelectorAll(".filter-btn");
 const searchInput = document.getElementById("searchInput");
-const filterBrand = document.getElementById("filterBrand");
-const filterModel = document.getElementById("filterModel");
-const filterStorage = document.getElementById("filterStorage");
-const filterRam = document.getElementById("filterRam");
-const filterColor = document.getElementById("filterColor");
-const filterCondition = document.getElementById("filterCondition");
-const filterAvailability = document.getElementById("filterAvailability");
-const filterMinPrice = document.getElementById("filterMinPrice");
-const filterMaxPrice = document.getElementById("filterMaxPrice");
-const clearFiltersButton = document.getElementById("clearFilters");
-const filterResultCount = document.getElementById("filterResultCount");
 const cartPanel = document.getElementById("cartPanel");
 const cartItems = document.getElementById("cartItems");
 const cartSubtotal = document.getElementById("cartSubtotal");
@@ -562,7 +550,6 @@ function readImageFiles(files) {
     reader.addEventListener("error", () => reject(new Error("The image could not be read.")));
     reader.readAsDataURL(file);
   })));
-const productFilters = { brand: "", model: "", storage: "", ram: "", color: "", condition: "", availability: "", minPrice: "", maxPrice: "" };
 }
 
 function renderVariantManager(productId) {
@@ -854,34 +841,7 @@ function getFilteredProducts() {
       .toLowerCase();
 
     const matchesSearch = combinedText.includes(searchTerm.trim().toLowerCase());
-    const variants = product.variants || [];
-    const matchesBrand = !productFilters.brand || product.brand === productFilters.brand;
-    const matchesModel = !productFilters.model || product.name.toLowerCase().includes(productFilters.model.toLowerCase());
-    const matchesStorage = !productFilters.storage || variants.some((variant) => variant.storage === productFilters.storage);
-    const matchesRam = !productFilters.ram || variants.some((variant) => variant.ram === productFilters.ram);
-    const matchesColor = !productFilters.color || variants.some((variant) => variant.color === productFilters.color);
-    const matchesCondition = !productFilters.condition || variants.some((variant) => variant.condition === productFilters.condition);
-    const matchesAvailability = !productFilters.availability || variants.some((variant) => productFilters.availability === "available" ? variant.stock > 0 : variant.stock <= 0);
-    const minPrice = Number(productFilters.minPrice);
-    const maxPrice = Number(productFilters.maxPrice);
-    const matchesPrice = variants.some((variant) => (!productFilters.minPrice || variant.price >= minPrice) && (!productFilters.maxPrice || variant.price <= maxPrice));
-    return matchesCategory && matchesSearch && matchesBrand && matchesModel && matchesStorage && matchesRam && matchesColor && matchesCondition && matchesAvailability && matchesPrice;
-  });
-}
-
-function populateProductFilters() {
-  const values = {
-    brand: [...new Set(products.map((product) => product.brand).filter(Boolean))],
-    storage: [...new Set(products.flatMap((product) => product.variants?.map((variant) => variant.storage) || []))].filter(Boolean),
-    ram: [...new Set(products.flatMap((product) => product.variants?.map((variant) => variant.ram) || []))].filter(Boolean),
-    color: [...new Set(products.flatMap((product) => product.variants?.map((variant) => variant.color) || []))].filter(Boolean),
-    condition: [...new Set(products.flatMap((product) => product.variants?.map((variant) => variant.condition) || []))].filter(Boolean)
-  };
-  [[filterBrand, values.brand], [filterStorage, values.storage], [filterRam, values.ram], [filterColor, values.color], [filterCondition, values.condition]].forEach(([select, options]) => {
-    if (!select) return;
-    const currentValue = select.value;
-    select.innerHTML = `<option value="">All ${select.id.replace("filter", "").toLowerCase()}</option>${options.sort().map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("")}`;
-    select.value = currentValue;
+    return matchesCategory && matchesSearch;
   });
 }
 
@@ -987,7 +947,6 @@ function renderDeals() {
 
 function renderProducts() {
   const items = getFilteredProducts();
-  if (filterResultCount) filterResultCount.textContent = `${items.length} matching product${items.length === 1 ? "" : "s"}`;
 
   if (items.length === 0) {
     productGrid.innerHTML = `
@@ -2190,23 +2149,6 @@ searchInput.addEventListener("input", (event) => {
   renderProducts();
 });
 
-[filterBrand, filterStorage, filterRam, filterColor, filterCondition, filterAvailability].forEach((select) => select?.addEventListener("change", () => {
-  const key = select.id.replace("filter", "").toLowerCase();
-  productFilters[key] = select.value;
-  renderProducts();
-}));
-[filterModel, filterMinPrice, filterMaxPrice].forEach((input) => input?.addEventListener("input", () => {
-  productFilters[input.id === "filterModel" ? "model" : input.id === "filterMinPrice" ? "minPrice" : "maxPrice"] = input.value;
-  renderProducts();
-}));
-clearFiltersButton?.addEventListener("click", () => {
-  Object.keys(productFilters).forEach((key) => { productFilters[key] = ""; });
-  [filterBrand, filterModel, filterStorage, filterRam, filterColor, filterCondition, filterAvailability, filterMinPrice, filterMaxPrice].forEach((input) => { if (input) input.value = ""; });
-  selectedCategory = "all";
-  filterButtons.forEach((button) => button.classList.toggle("active", button.dataset.category === "all"));
-  renderProducts();
-});
-
 wishlistButton.addEventListener("click", () => {
   window.location.hash = "wishlist";
 });
@@ -2272,7 +2214,6 @@ function initializeApp() {
     syncAdminButtonState();
     loadLocalAdminProducts();
     normalizeProducts();
-    populateProductFilters();
     renderDeals();
     renderProducts();
     updateSeoSchema();
