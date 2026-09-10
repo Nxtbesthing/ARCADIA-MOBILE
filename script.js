@@ -2075,7 +2075,11 @@ function changeQuantity(productId, change, variantId = null) {
 }
 
 function removeFromCart(productId, variantId = null) {
-  cart = cart.filter((item) => !(item.id === productId && item.variantId === variantId));
+  cart = cart.filter((item) => {
+    if (item.id !== productId) return true;
+    if (!variantId) return false;
+    return String(item.variantId || `${item.id}-default`) !== String(variantId);
+  });
   saveCartToStorage();
   updateCart();
 }
