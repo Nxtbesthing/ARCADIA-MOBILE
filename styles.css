@@ -293,6 +293,74 @@ svg {
   text-align: center;
 }
 
+.discount-badge,
+.product-warranty {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-left: 8px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #111;
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.product-warranty {
+  margin: 10px 0 0;
+  background: var(--bg-soft);
+  color: var(--subtle);
+}
+
+.bulk-pricing-controls {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 10px;
+  grid-column: 1 / -1;
+  padding-top: 4px;
+}
+
+.bulk-pricing-controls label {
+  display: grid;
+  gap: 6px;
+  color: var(--subtle);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.bulk-pricing-controls input {
+  width: 170px;
+}
+
+.variant-discount-amount,
+.variant-final-price {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--subtle);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.variant-final-price {
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.variant-edit-grid output {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--bg-soft);
+  color: var(--text);
+}
+
 .icon-btn,
 .cart-btn,
 .menu-toggle {
@@ -3607,6 +3675,16 @@ textarea {
 
   .admin-product-form {
     padding: 16px;
+  }
+
+  .bulk-pricing-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bulk-pricing-controls input,
+  .bulk-pricing-controls button {
+    width: 100%;
   }
 
   .admin-header-actions {

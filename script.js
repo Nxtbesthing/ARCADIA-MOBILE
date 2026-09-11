@@ -254,6 +254,42 @@ const structuredCatalogs = {
   Infinix: { catalog: infinixCatalog, models: infinixModels, getColors: getInfinixColors, isValid: isValidInfinixVariant, category: "infinix" }
 };
 
+const WARRANTY_OPTIONS = ["No Warranty", ...Array.from({ length: 12 }, (_, index) => `${index + 1} Month${index ? "s" : ""}`)];
+
+function calculatePricing(originalPrice, discountPercentage) {
+  const original = Math.max(0, Number(originalPrice) || 0);
+  const discount = Math.min(100, Math.max(0, Number(discountPercentage) || 0));
+  const discountAmount = Math.round(original * (discount / 100));
+  return { originalPrice: original, discountPercentage: discount, discountAmount, finalPrice: original - discountAmount };
+}
+
+function getDiscountLabel(pricing) {
+  return Number(pricing.discountPercentage) > 0 ? `${pricing.discountPercentage}% OFF` : "";
+}
+
+function renderPriceMarkup(pricing, prefix = "") {
+  const discountLabel = getDiscountLabel(pricing);
+  return `<span class="current-price">${formatCurrency(pricing.finalPrice)}</span>${discountLabel ? `<span class="old-price">${formatCurrency(pricing.originalPrice)}</span><span class="discount-badge">${discountLabel}</span>` : ""}`;
+}
+
+function getPricingFromVariant(variant) {
+  const originalPrice = Number.isFinite(Number(variant.originalPrice))
+    ? Number(variant.originalPrice)
+    : Number(variant.oldPrice || variant.price) || 0;
+  const discountPercentage = Number.isFinite(Number(variant.discountPercentage))
+    ? Number(variant.discountPercentage)
+    : Number.isFinite(Number(variant.discount))
+      ? Number(variant.discount)
+      : Number.isFinite(Number(variant.discountPercentage))
+        ? Number(variant.discountPercentage)
+        : originalPrice > Number(variant.price) ? ((originalPrice - Number(variant.price)) / originalPrice) * 100 : 0;
+  return calculatePricing(originalPrice, discountPercentage);
+}
+
+function renderWarrantyOptions(selected = "No Warranty") {
+  return WARRANTY_OPTIONS.map((option) => `<option value="${option}" ${option === selected ? "selected" : ""}>${option}</option>`).join("");
+}
+
 function getStructuredCatalog(brand, categoryKey) {
   const catalog = structuredCatalogs[brand];
   return catalog?.category === categoryKey ? catalog : null;
@@ -337,6 +373,7 @@ function renderBillboard() {
 }
 
 function createLegacyVariant(product) {
+  const pricing = getPricingFromVariant(product);
   return {
     id: `${product.id}-default`,
     storage: product.storage || "N/A",
@@ -348,31 +385,42 @@ function createLegacyVariant(product) {
     display: product.display || "",
     camera: product.camera || "",
     sim: product.sim || "",
-    price: Number(product.price) || 0,
-    oldPrice: Number(product.oldPrice || product.price) || 0,
+    ...pricing,
+    price: pricing.finalPrice,
+    oldPrice: pricing.originalPrice,
     stock: Number(product.stock) || 0,
     sku: product.sku || `${product.id}-DEFAULT`,
     warranty: product.warranty || "No Warranty",
+    warrantyMonths: product.warrantyMonths || 0,
     images: Array.isArray(product.images) ? product.images : []
   };
 }
 
 function normalizeProduct(product) {
-  const variants = Array.isArray(product.variants) && product.variants.length
+  const variants = (Array.isArray(product.variants) && product.variants.length
     ? product.variants
-    : [createLegacyVariant(product)];
+    : [createLegacyVariant(product)]).map((variant) => {
+      const pricing = getPricingFromVariant(variant);
+      return { ...variant, ...pricing, price: pricing.finalPrice, oldPrice: pricing.originalPrice };
+    });
   const defaultVariant = variants.find((variant) => variant.stock > 0) || variants[0];
   return {
     ...product,
     variants,
     price: Number(defaultVariant.price) || 0,
     oldPrice: Number(defaultVariant.oldPrice || defaultVariant.price) || 0,
+    originalPrice: defaultVariant.originalPrice,
+    discountPercentage: defaultVariant.discountPercentage,
+    discountAmount: defaultVariant.discountAmount,
+    finalPrice: defaultVariant.finalPrice,
+    discount: defaultVariant.discountPercentage,
     stock: variants.reduce((total, variant) => total + (Number(variant.stock) || 0), 0),
     images: defaultVariant.images?.length ? defaultVariant.images : product.images,
     storage: defaultVariant.storage,
     color: defaultVariant.color,
     condition: defaultVariant.condition,
     warranty: defaultVariant.warranty,
+    warrantyMonths: defaultVariant.warrantyMonths || 0,
     sku: defaultVariant.sku
   };
 }
@@ -394,6 +442,8 @@ function validateVariants(variants, product = {}) {
     const sku = String(variant.sku || "").trim().toLowerCase();
     if (!sku) return "Every variant needs a SKU.";
     if (Number(variant.price) < 0 || !Number.isFinite(Number(variant.price))) return "Prices must be valid and cannot be negative.";
+    if (Number(variant.originalPrice) < 0 || !Number.isFinite(Number(variant.originalPrice))) return "Original prices must be valid and cannot be negative.";
+    if (Number(variant.discountPercentage) < 0 || Number(variant.discountPercentage) > 100 || !Number.isFinite(Number(variant.discountPercentage))) return "Discount must be between 0% and 100%.";
     if (Number(variant.stock) < 0 || !Number.isFinite(Number(variant.stock))) return "Stock must be valid and cannot be negative.";
     if (existingSkus.has(sku) || submittedSkus.has(sku)) return `SKU ${variant.sku} already exists.`;
     const identity = `${product.brand}|${product.name}|${variant.storage}|${variant.color}`.toLowerCase();
@@ -652,7 +702,7 @@ function renderVariantManager(productId) {
     ? `<select name="storage" id="variantEditStorage" required>${Object.keys(structuredCatalog.catalog[product.name]?.storages || {}).map((storage) => `<option>${escapeHtml(storage)}</option>`).join("")}</select>`
     : `<input name="storage" required />`;
   const colorControl = structuredCatalog ? `<select name="color" id="variantEditColor" required></select>` : `<input name="color" required />`;
-  adminPage.insertAdjacentHTML("beforeend", `<div class="admin-variant-modal" id="variantManagerModal"><div class="admin-variant-dialog"><button class="admin-access-close" id="closeVariantManager" type="button" aria-label="Close variant manager">×</button><p class="eyebrow">PRODUCT MANAGEMENT</p><h2>${escapeHtml(product.name)} VARIANTS</h2><div class="variant-manager-list">${variantRows}</div><form class="variant-edit-form hidden" id="variantEditForm"><input type="hidden" name="variantId" /><div class="variant-edit-grid"><label>Storage${storageControl}</label><label>Color${colorControl}</label><label>RAM<input name="ram" /></label><label>Condition<input name="condition" required /></label><label>Price<input name="price" type="number" min="0" required /></label><label>Compare-at price<input name="oldPrice" type="number" min="0" /></label><label>Stock<input name="stock" type="number" min="0" required /></label><label>SKU<input name="sku" required /></label><label>Warranty<input name="warranty" /></label><label>Battery health<input name="batteryHealth" type="number" min="0" max="100" /></label><label>Face ID<input name="faceId" /></label><label>True Tone<input name="trueTone" /></label><label>Display<input name="display" /></label><label>Battery<input name="battery" /></label><label>Camera<input name="camera" /></label><label>Speaker<input name="speaker" /></label><label>Microphone<input name="microphone" /></label><label>Charging<input name="charging" /></label><label>SIM/network<input name="sim" /></label><label class="full-field">Notes<textarea name="notes" rows="3"></textarea></label><label class="full-field">Replace image<input name="image" type="file" accept="image/*" /></label></div><div class="confirmation-actions"><button class="primary-btn" type="submit">SAVE VARIANT</button><button class="secondary-btn" id="cancelVariantEdit" type="button">CANCEL</button></div></form></div></div>`);
+  adminPage.insertAdjacentHTML("beforeend", `<div class="admin-variant-modal" id="variantManagerModal"><div class="admin-variant-dialog"><button class="admin-access-close" id="closeVariantManager" type="button" aria-label="Close variant manager">×</button><p class="eyebrow">PRODUCT MANAGEMENT</p><h2>${escapeHtml(product.name)} VARIANTS</h2><div class="variant-manager-list">${variantRows}</div><form class="variant-edit-form hidden" id="variantEditForm"><input type="hidden" name="variantId" /><div class="variant-edit-grid"><label>Storage${storageControl}</label><label>Color${colorControl}</label><label>RAM<input name="ram" /></label><label>Condition<input name="condition" required /></label><label>Original price<input name="originalPrice" type="number" min="0" required /></label><label>Discount (%)<input name="discountPercentage" type="number" min="0" max="100" step="0.01" required /></label><label>Discount amount<output name="discountAmount">₦ 0</output></label><label>Final price<output name="finalPrice">₦ 0</output></label><label>Stock<input name="stock" type="number" min="0" required /></label><label>SKU<input name="sku" required /></label><label>Warranty<select name="warranty">${renderWarrantyOptions()}</select></label><label>Battery health<input name="batteryHealth" type="number" min="0" max="100" /></label><label>Face ID<input name="faceId" /></label><label>True Tone<input name="trueTone" /></label><label>Display<input name="display" /></label><label>Battery<input name="battery" /></label><label>Camera<input name="camera" /></label><label>Speaker<input name="speaker" /></label><label>Microphone<input name="microphone" /></label><label>Charging<input name="charging" /></label><label>SIM/network<input name="sim" /></label><label class="full-field">Notes<textarea name="notes" rows="3"></textarea></label><label class="full-field">Replace image<input name="image" type="file" accept="image/*" /></label></div><div class="confirmation-actions"><button class="primary-btn" type="submit">SAVE VARIANT</button><button class="secondary-btn" id="cancelVariantEdit" type="button">CANCEL</button></div></form></div></div>`);
 
   const modal = document.getElementById("variantManagerModal");
   const form = document.getElementById("variantEditForm");
@@ -664,6 +714,13 @@ function renderVariantManager(productId) {
   };
   editStorage?.addEventListener("change", () => updateEditColors());
   updateEditColors();
+  const updateEditPricing = () => {
+    const pricing = calculatePricing(form.elements.originalPrice.value, form.elements.discountPercentage.value);
+    form.elements.discountAmount.value = formatCurrency(pricing.discountAmount);
+    form.elements.finalPrice.value = formatCurrency(pricing.finalPrice);
+  };
+  form.elements.originalPrice.addEventListener("input", updateEditPricing);
+  form.elements.discountPercentage.addEventListener("input", updateEditPricing);
   const close = () => modal.remove();
   document.getElementById("closeVariantManager").addEventListener("click", close);
   document.getElementById("cancelVariantEdit").addEventListener("click", () => form.classList.add("hidden"));
@@ -688,6 +745,9 @@ function renderVariantManager(productId) {
     form.classList.remove("hidden");
     Object.entries(variant).forEach(([key, value]) => { const input = form.elements[key]; if (input && key !== "images") input.value = value ?? ""; });
     updateEditColors(variant.color);
+    form.elements.originalPrice.value = variant.originalPrice;
+    form.elements.discountPercentage.value = variant.discountPercentage;
+    updateEditPricing();
     form.elements.variantId.value = variant.id;
   }));
 
@@ -702,7 +762,8 @@ function renderVariantManager(productId) {
     const sku = String(data.get("sku")).trim();
     const duplicateSku = products.some((entry) => entry.variants.some((item) => item.id !== variant.id && String(item.sku).toLowerCase() === sku.toLowerCase()));
     if (duplicateSku) { window.alert("That SKU already exists."); return; }
-    Object.assign(variant, { storage: data.get("storage"), color: data.get("color"), ram: data.get("ram"), condition: data.get("condition"), price: Number(data.get("price")), oldPrice: Number(data.get("oldPrice")) || Number(data.get("price")), stock: Number(data.get("stock")), sku, warranty: data.get("warranty"), batteryHealth: data.get("batteryHealth"), faceId: data.get("faceId"), trueTone: data.get("trueTone"), display: data.get("display"), battery: data.get("battery"), camera: data.get("camera"), speaker: data.get("speaker"), microphone: data.get("microphone"), charging: data.get("charging"), sim: data.get("sim"), notes: data.get("notes") });
+    const pricing = calculatePricing(data.get("originalPrice"), data.get("discountPercentage"));
+    Object.assign(variant, { storage: data.get("storage"), color: data.get("color"), ram: data.get("ram"), condition: data.get("condition"), ...pricing, price: pricing.finalPrice, oldPrice: pricing.originalPrice, stock: Number(data.get("stock")), sku, warranty: data.get("warranty"), warrantyMonths: WARRANTY_OPTIONS.indexOf(data.get("warranty")), batteryHealth: data.get("batteryHealth"), faceId: data.get("faceId"), trueTone: data.get("trueTone"), display: data.get("display"), battery: data.get("battery"), camera: data.get("camera"), speaker: data.get("speaker"), microphone: data.get("microphone"), charging: data.get("charging"), sim: data.get("sim"), notes: data.get("notes") });
     const images = await readImageFiles(data.getAll("image"));
     if (images.length) variant.images = images;
     products = products.map(normalizeProduct);
@@ -735,15 +796,22 @@ function renderAdminPage(section = "overview", notice = "") {
         <input name="bulkColors" placeholder="Generate colors: Midnight, Blue" />
         <button class="admin-action" id="generateVariants" type="button">GENERATE VARIANTS</button>
       </div>
+      <div class="bulk-pricing-controls">
+        <label>Apply discount to all variants (%)<input id="bulkDiscountPercentage" type="number" min="0" max="100" step="0.01" value="0" /></label>
+        <button class="admin-action" id="applyBulkDiscount" type="button">APPLY DISCOUNT</button>
+      </div>
       <div class="admin-variant-builder" id="adminVariantBuilder">
         <div class="admin-variant-row">
           <input name="variantStorage" placeholder="Storage / RAM (e.g. 128GB)" />
           <input name="variantColor" placeholder="Color" />
           <select name="variantCondition" aria-label="Condition"><option>New</option><option>Like New</option><option>Excellent</option><option>Good</option><option>Fair</option><option>Refurbished</option></select>
-          <input name="variantPrice" type="number" min="0" placeholder="Price" required />
+          <input name="variantOriginalPrice" type="number" min="0" placeholder="Original price" required />
+          <input name="variantDiscountPercentage" type="number" min="0" max="100" step="0.01" placeholder="Discount (%)" value="0" required />
+          <span class="variant-discount-amount">Discount: ₦ 0</span>
+          <output class="variant-final-price">Final price: ₦ 0</output>
           <input name="variantStock" type="number" min="0" placeholder="Stock" required />
           <input name="variantSku" placeholder="SKU" required />
-          <input name="variantWarranty" placeholder="Warranty" value="No Warranty" />
+          <select name="variantWarranty" aria-label="Warranty">${renderWarrantyOptions()}</select>
           <input name="variantBatteryHealth" type="number" min="0" max="100" placeholder="Battery % (optional)" />
           <input name="variantFaceId" placeholder="Face ID status" />
           <input name="variantTrueTone" placeholder="True Tone status" />
@@ -835,10 +903,13 @@ function renderAdminPage(section = "overview", notice = "") {
       <input name="variantStorage" value="${escapeHtml(storage)}" placeholder="Storage / RAM (e.g. 128GB)" ${locked ? "readonly" : ""} required />
       <input name="variantColor" value="${escapeHtml(color)}" placeholder="Color" ${locked ? "readonly" : ""} required />
       <select name="variantCondition" aria-label="Condition"><option>New</option><option>Like New</option><option>Excellent</option><option>Good</option><option>Fair</option><option>Refurbished</option></select>
-      <input name="variantPrice" type="number" min="0" placeholder="Price" required />
+      <input name="variantOriginalPrice" type="number" min="0" placeholder="Original price" required />
+      <input name="variantDiscountPercentage" type="number" min="0" max="100" step="0.01" placeholder="Discount (%)" value="0" required />
+      <span class="variant-discount-amount">Discount: ₦ 0</span>
+      <output class="variant-final-price">Final price: ₦ 0</output>
       <input name="variantStock" type="number" min="0" placeholder="Stock" required />
       <input name="variantSku" placeholder="SKU" required />
-      <input name="variantWarranty" placeholder="Warranty" value="No Warranty" />
+      <select name="variantWarranty" aria-label="Warranty">${renderWarrantyOptions()}</select>
       <input name="variantBatteryHealth" type="number" min="0" max="100" placeholder="Battery % (optional)" />
       <input name="variantFaceId" placeholder="Face ID status" /><input name="variantTrueTone" placeholder="True Tone status" /><input name="variantDisplay" placeholder="Display status" /><input name="variantCamera" placeholder="Camera status" /><input name="variantSim" placeholder="SIM / network" />
       ${locked ? "" : '<button class="admin-action danger remove-variant-row" type="button">REMOVE</button>'}
@@ -867,6 +938,22 @@ function renderAdminPage(section = "overview", notice = "") {
     variantBuilder.innerHTML = "<p class=\"catalog-manager-note\">Select one or more colors to create individual stock variants.</p>";
   };
 
+  const updateVariantPricing = (row) => {
+    const originalPrice = row.querySelector("[name='variantOriginalPrice']");
+    const discount = row.querySelector("[name='variantDiscountPercentage']");
+    if (!originalPrice || !discount) return;
+    const pricing = calculatePricing(originalPrice.value, discount.value);
+    row.querySelector(".variant-discount-amount").textContent = `Discount: ${formatCurrency(pricing.discountAmount)}`;
+    row.querySelector(".variant-final-price").textContent = `Final price: ${formatCurrency(pricing.finalPrice)}`;
+  };
+
+  const bindVariantPricing = () => {
+    variantBuilder.querySelectorAll(".admin-variant-row").forEach((row) => {
+      row.querySelectorAll("[name='variantOriginalPrice'], [name='variantDiscountPercentage']").forEach((input) => input.addEventListener("input", () => updateVariantPricing(row)));
+      updateVariantPricing(row);
+    });
+  };
+
   brandInput?.addEventListener("change", (event) => {
     const categoryInput = document.querySelector("[name='categoryKey']");
     if (structuredCatalogs[event.target.value]) categoryInput.value = structuredCatalogs[event.target.value].category;
@@ -882,10 +969,20 @@ function renderAdminPage(section = "overview", notice = "") {
     variantBuilder.innerHTML = selectedColors.length
       ? selectedColors.map((color) => variantRow(catalogStorageInput.value, color, true)).join("")
       : "<p class=\"catalog-manager-note\">Select one or more colors to create individual stock variants.</p>";
+    bindVariantPricing();
   });
   updateCatalogOptions();
+  bindVariantPricing();
+  document.getElementById("applyBulkDiscount")?.addEventListener("click", () => {
+    const value = document.getElementById("bulkDiscountPercentage").value;
+    variantBuilder.querySelectorAll("[name='variantDiscountPercentage']").forEach((input) => {
+      input.value = value;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  });
   document.getElementById("addVariantRow")?.addEventListener("click", () => {
     variantBuilder.insertAdjacentHTML("beforeend", variantRow());
+    bindVariantPricing();
     adminPage.querySelectorAll(".remove-variant-row").forEach((button) => button.addEventListener("click", () => button.parentElement.remove()));
   });
   document.getElementById("generateVariants")?.addEventListener("click", () => {
@@ -894,6 +991,7 @@ function renderAdminPage(section = "overview", notice = "") {
     if (!storageValues.length || !colorValues.length) return;
     const builder = document.getElementById("adminVariantBuilder");
     builder.innerHTML = storageValues.flatMap((storage) => colorValues.map((color) => variantRow(storage, color))).join("");
+    bindVariantPricing();
   });
   productImageInput?.addEventListener("change", async () => {
     const preview = document.getElementById("adminImagePreview");
@@ -923,10 +1021,13 @@ function renderAdminPage(section = "overview", notice = "") {
         color: data.getAll("variantColor")[index] || "N/A",
         condition: data.getAll("variantCondition")[index],
         price: Number(data.getAll("variantPrice")[index]) || 0,
-        oldPrice: Number(data.getAll("variantPrice")[index]) || 0,
+        ...calculatePricing(data.getAll("variantOriginalPrice")[index], data.getAll("variantDiscountPercentage")[index]),
+        price: calculatePricing(data.getAll("variantOriginalPrice")[index], data.getAll("variantDiscountPercentage")[index]).finalPrice,
+        oldPrice: Number(data.getAll("variantOriginalPrice")[index]) || 0,
         stock: Number(data.getAll("variantStock")[index]) || 0,
         sku: data.getAll("variantSku")[index],
         warranty: data.getAll("variantWarranty")[index] || "No Warranty",
+        warrantyMonths: WARRANTY_OPTIONS.indexOf(data.getAll("variantWarranty")[index] || "No Warranty"),
         batteryHealth: data.getAll("variantBatteryHealth")[index] || "",
         faceId: data.getAll("variantFaceId")[index] || "",
         trueTone: data.getAll("variantTrueTone")[index] || "",
@@ -939,7 +1040,7 @@ function renderAdminPage(section = "overview", notice = "") {
       const productDetails = { name: data.get("model") || data.get("name"), brand: data.get("brand"), categoryKey: data.get("categoryKey") };
       const validationMessage = validateVariants(variantRows, productDetails);
       if (validationMessage) throw new Error(validationMessage);
-      await adminProductAction("create", null, { ...productDetails, category: data.get("categoryKey"), price: firstVariant.price, stock: variantRows.reduce((sum, variant) => sum + variant.stock, 0), storage: firstVariant.storage, color: firstVariant.color, condition: firstVariant.condition, sku: firstVariant.sku, warranty: firstVariant.warranty, images, variants: variantRows });
+      await adminProductAction("create", null, { ...productDetails, category: data.get("categoryKey"), price: firstVariant.price, originalPrice: firstVariant.originalPrice, discountPercentage: firstVariant.discountPercentage, discountAmount: firstVariant.discountAmount, finalPrice: firstVariant.finalPrice, discount: firstVariant.discountPercentage, stock: variantRows.reduce((sum, variant) => sum + variant.stock, 0), storage: firstVariant.storage, color: firstVariant.color, condition: firstVariant.condition, sku: firstVariant.sku, warranty: firstVariant.warranty, warrantyMonths: firstVariant.warrantyMonths, images, variants: variantRows });
       renderAdminPage("products", "Product added successfully.");
       adminPage.querySelector(".admin-notice")?.classList.add("admin-notice-success");
     } catch (error) {
@@ -1120,7 +1221,7 @@ function updateSeoSchema() {
 
 function renderDeals() {
   const deals = products
-    .filter((product) => product.oldPrice)
+    .filter((product) => product.discountPercentage > 0)
     .slice(0, 3)
     .map(
       (product) => `
@@ -1132,10 +1233,10 @@ function renderDeals() {
             <span class="deal-brand">${product.brand}</span>
             <h3>${product.name}</h3>
             <div class="deal-pricing">
-              <span class="old-price">${formatCurrency(product.oldPrice)}</span>
-              <span class="new-price">${formatCurrency(product.price)}</span>
+              <span class="old-price">${formatCurrency(product.originalPrice)}</span>
+              <span class="new-price">${formatCurrency(product.finalPrice)}</span>
             </div>
-            <span class="save-badge">SAVE ${formatCurrency(product.oldPrice - product.price)}</span>
+            <span class="save-badge">SAVE ${formatCurrency(product.discountAmount)}</span>
           </div>
         </article>
       `
@@ -1180,11 +1281,11 @@ function renderProducts() {
             </div>
             <div class="product-price-row">
               <div>
-                <span class="current-price">${formatCurrency(product.price)}</span>
-                <span class="old-price">${formatCurrency(product.oldPrice)}</span>
+                ${renderPriceMarkup(product)}
               </div>
               <span class="stock-status">${product.stock > 0 ? `Stock: ${product.stock}` : "OUT OF STOCK"}</span>
             </div>
+            ${product.warranty && product.warranty !== "No Warranty" ? `<span class="product-warranty">${escapeHtml(product.warranty)} warranty</span>` : ""}
             <div class="product-actions">
               <button class="add-btn" type="button" data-id="${product.id}" ${product.stock <= 0 ? "disabled" : ""}>${product.stock > 0 ? "ADD TO CART" : "OUT OF STOCK"}</button>
             </div>
@@ -1750,7 +1851,7 @@ function renderCheckoutPage() {
         <aside class="order-summary">
           <h2>Order summary</h2>
           <div class="summary-products">
-            ${cart.map((item) => `<div class="summary-product"><span>${item.name} <small>× ${item.quantity}</small></span><strong>${formatCurrency(item.price * item.quantity)}</strong></div>`).join("")}
+            ${cart.map((item) => `<div class="summary-product"><span>${item.name} <small>${[item.storage, item.color].filter((value) => value && value !== "N/A").join(" / ")} × ${item.quantity}${item.warranty && item.warranty !== "No Warranty" ? ` · ${item.warranty} warranty` : ""}</small></span><strong>${formatCurrency(item.price * item.quantity)}</strong></div>`).join("")}
           </div>
           <div class="checkout-summary-row"><span>Subtotal</span><strong>${formatCurrency(subtotal)}</strong></div>
           <div class="checkout-summary-row"><span>Delivery</span><strong id="checkoutDelivery">${formatCurrency(delivery)}</strong></div>
@@ -1864,7 +1965,8 @@ function renderWishlistPage() {
             <div class="wishlist-item-info">
               <span class="product-brand">${product.brand}</span>
               <h2>${product.name}</h2>
-              <strong>${formatCurrency(product.price)}</strong>
+              <strong>${formatCurrency(product.finalPrice)}${product.discountPercentage > 0 ? ` <s>${formatCurrency(product.originalPrice)}</s>` : ""}</strong>
+              ${product.warranty && product.warranty !== "No Warranty" ? `<small>Warranty: ${escapeHtml(product.warranty)}</small>` : ""}
             </div>
             <div class="wishlist-item-actions">
               <button class="primary-btn wishlist-cart-btn" type="button" data-id="${product.id}">ADD TO CART</button>
@@ -1941,8 +2043,8 @@ function renderProductDetail(product, variantId = selectedDetailVariantId) {
           </div>
 
           <div class="detail-price-block">
-            <span class="detail-price">${formatCurrency(variant.price)}</span>
-            <span class="detail-old-price">${formatCurrency(variant.oldPrice)}</span>
+            <span class="detail-price">${formatCurrency(variant.finalPrice)}</span>
+            ${variant.discountPercentage > 0 ? `<span class="detail-old-price">${formatCurrency(variant.originalPrice)}</span><span class="detail-discount">${getDiscountLabel(variant)}</span>` : ""}
             <span class="detail-discount">SKU ${escapeHtml(variant.sku)}</span>
           </div>
 
@@ -2344,7 +2446,8 @@ function updateCart() {
           <div class="cart-item-copy">
             <strong>${item.name}</strong>
             <span>${[item.storage, item.color, item.condition].filter((value) => value && value !== "N/A").join(" / ")}</span>
-            <span>${formatCurrency(item.price)}</span>
+            <span>${formatCurrency(item.finalPrice ?? item.price)}${item.discountPercentage > 0 ? ` · ${getDiscountLabel(item)}` : ""}</span>
+            ${item.warranty && item.warranty !== "No Warranty" ? `<span>Warranty: ${escapeHtml(item.warranty)}</span>` : ""}
           </div>
           <div class="cart-item-actions">
             <div class="cart-qty-box">
