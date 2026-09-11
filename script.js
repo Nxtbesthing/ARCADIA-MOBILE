@@ -410,6 +410,7 @@ const productGrid = document.getElementById("productGrid");
 const dealGrid = document.getElementById("dealGrid");
 const filterButtons = document.querySelectorAll(".filter-btn");
 const searchInput = document.getElementById("searchInput");
+const searchResults = document.getElementById("searchResults");
 const cartPanel = document.getElementById("cartPanel");
 const cartItems = document.getElementById("cartItems");
 const cartSubtotal = document.getElementById("cartSubtotal");
@@ -932,30 +933,74 @@ function formatCurrency(amount) {
   return `₦ ${(Number.isFinite(numericAmount) ? numericAmount : 0).toLocaleString()}`;
 }
 
+function normalizeSearchText(value) {
+  return String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function getSearchableProductText(product) {
+  return normalizeSearchText([
+    product.name, product.brand, product.model, product.category, product.categoryKey,
+    product.description, product.condition, product.storage, product.color, product.warranty,
+    product.sku, ...(product.specifications || []),
+    ...(product.variants || []).flatMap((variant) => [variant.storage, variant.color, variant.condition, variant.sku, variant.warranty, variant.notes])
+  ].join(" "));
+}
+
+function getSearchableVariants(product, query) {
+  const terms = normalizeSearchText(query).split(" ").filter(Boolean);
+  return (product.variants || []).filter((variant) => {
+    const variantText = normalizeSearchText([
+      product.name, product.brand, product.model, product.category, product.categoryKey,
+      product.description, product.sku, variant.storage, variant.color, variant.condition,
+      variant.sku, variant.warranty, variant.notes
+    ].join(" "));
+    return terms.every((term) => variantText.includes(term));
+  });
+}
+
+function getSearchMatches(query) {
+  const terms = normalizeSearchText(query).split(" ").filter(Boolean);
+  if (!terms.length) return [];
+  return products
+    .map((product) => ({ product, variants: getSearchableVariants(product, query) }))
+    .filter(({ product, variants }) => terms.every((term) => getSearchableProductText(product).includes(term)) && variants.length);
+}
+
 function getFilteredProducts() {
+  const terms = normalizeSearchText(searchTerm).split(" ").filter(Boolean);
   return products.filter((product) => {
     const matchesCategory =
       selectedCategory === "all" || product.categoryKey === selectedCategory;
 
-    const combinedText = [
-      product.name,
-      product.brand,
-      product.category,
-      product.description,
-      product.condition,
-      product.storage,
-      product.color,
-      product.warranty,
-      product.sku,
-      ...(product.variants || []).flatMap((variant) => [variant.storage, variant.color, variant.condition, variant.sku, variant.warranty]),
-      ...(product.specifications || [])
-    ]
-      .join(" ")
-      .toLowerCase();
-
-    const matchesSearch = combinedText.includes(searchTerm.trim().toLowerCase());
+    const matchesSearch = terms.every((term) => getSearchableProductText(product).includes(term));
     return matchesCategory && matchesSearch;
   });
+}
+
+function renderSearchResults() {
+  if (!searchResults) return;
+  const query = searchInput.value.trim();
+  if (!query) {
+    searchResults.hidden = true;
+    searchResults.innerHTML = "";
+    return;
+  }
+  const matches = getSearchMatches(query).slice(0, 8);
+  searchResults.hidden = false;
+  searchResults.innerHTML = matches.length
+    ? matches.map(({ product, variants }) => `
+      <button class="search-result" type="button" role="option" data-product-id="${product.id}">
+        <img src="${escapeHtml(product.images?.[0] || "arcadia-logo.png.jpeg")}" alt="" />
+        <span class="search-result-copy"><strong>${escapeHtml(product.name)}</strong><small>${variants.slice(0, 3).map((variant) => `${escapeHtml(variant.storage)} / ${escapeHtml(variant.color)} · ${Number(variant.stock) > 0 ? `${variant.stock} in stock` : "Out of stock"}`).join("<br />")}</small></span>
+        <b>${formatCurrency(variants[0].price)}</b>
+      </button>
+    `).join("")
+    : `<p class="search-no-results">No products found</p>`;
+
+  searchResults.querySelectorAll(".search-result").forEach((result) => result.addEventListener("click", () => {
+    searchResults.hidden = true;
+    openProductDetail(Number(result.dataset.productId));
+  }));
 }
 
 function updateSeoSchema() {
@@ -1805,6 +1850,10 @@ function openProductDetail(productId) {
   const product = products.find((item) => item.id === productId);
   if (!product) return;
 
+  if (searchResults) {
+    searchResults.hidden = true;
+    searchResults.innerHTML = "";
+  }
   detailQuantity = 1;
   selectedDetailVariantId = product.variants?.[0]?.id || `${product.id}-default`;
   const route = `#product-${product.id}`;
@@ -2294,6 +2343,11 @@ filterButtons.forEach((button) => {
 searchInput.addEventListener("input", (event) => {
   searchTerm = event.target.value;
   renderProducts();
+  renderSearchResults();
+});
+
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".search-box")) searchResults.hidden = true;
 });
 
 wishlistButton.addEventListener("click", () => {
