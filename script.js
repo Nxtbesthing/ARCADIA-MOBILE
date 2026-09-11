@@ -1,3 +1,5 @@
+import { getIphoneColors, iphoneCatalog, iphoneModels, isValidIphoneVariant } from "./src/iphone-catalog.js";
+
 const fallbackProducts = [
   {
     id: 1,
@@ -231,7 +233,7 @@ const fallbackProducts = [
   }
 ];
 
-const IPHONE_MODELS = ["iPhone", "iPhone 6", "iPhone 6 Plus", "iPhone 6s", "iPhone 6s Plus", "iPhone SE", "iPhone 7", "iPhone 7 Plus", "iPhone 8", "iPhone 8 Plus", "iPhone X", "iPhone XR", "iPhone XS", "iPhone XS Max", "iPhone 11", "iPhone 11 Pro", "iPhone 11 Pro Max", "iPhone SE (2nd generation)", "iPhone 12 mini", "iPhone 12", "iPhone 12 Pro", "iPhone 12 Pro Max", "iPhone SE (3rd generation)", "iPhone 13 mini", "iPhone 13", "iPhone 13 Pro", "iPhone 13 Pro Max", "iPhone 14", "iPhone 14 Plus", "iPhone 14 Pro", "iPhone 14 Pro Max", "iPhone 15", "iPhone 15 Plus", "iPhone 15 Pro", "iPhone 15 Pro Max", "iPhone 16", "iPhone 16 Plus", "iPhone 16 Pro", "iPhone 16 Pro Max", "iPhone 16e", "iPhone 17", "iPhone 17 Air", "iPhone 17 Pro", "iPhone 17 Pro Max"];
+const IPHONE_MODELS = iphoneModels;
 const SAMSUNG_MODELS = ["Galaxy S24", "Galaxy S24 Ultra", "Galaxy S23", "Galaxy S23 Ultra", "Galaxy S22", "Galaxy Note 20", "Galaxy Z Fold 6", "Galaxy Z Fold 5", "Galaxy Z Flip 6", "Galaxy Z Flip 5", "Galaxy A55", "Galaxy A35", "Galaxy A25", "Galaxy M55", "Galaxy M35"];
 
 let products = [...fallbackProducts];
@@ -261,7 +263,8 @@ const productStorage = {
     }
   },
   saveProducts(nextProducts) {
-    localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(nextProducts));
+    const normalized = nextProducts.map(normalizeProduct);
+    localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(normalized));
   }
 };
 
@@ -359,16 +362,23 @@ function getProductVariant(product, variantId) {
   return product.variants?.find((variant) => variant.id === variantId) || product.variants?.[0] || createLegacyVariant(product);
 }
 
-function validateVariants(variants) {
+function validateVariants(variants, product = {}) {
   if (!variants.length) return "Add at least one variant.";
   const existingSkus = new Set(products.flatMap((product) => (product.variants || []).map((variant) => String(variant.sku || "").trim().toLowerCase())));
   const submittedSkus = new Set();
+  const submittedIdentities = new Set();
   for (const variant of variants) {
     const sku = String(variant.sku || "").trim().toLowerCase();
     if (!sku) return "Every variant needs a SKU.";
     if (Number(variant.price) < 0 || !Number.isFinite(Number(variant.price))) return "Prices must be valid and cannot be negative.";
     if (Number(variant.stock) < 0 || !Number.isFinite(Number(variant.stock))) return "Stock must be valid and cannot be negative.";
     if (existingSkus.has(sku) || submittedSkus.has(sku)) return `SKU ${variant.sku} already exists.`;
+    const identity = `${product.brand}|${product.name}|${variant.storage}|${variant.color}`.toLowerCase();
+    if (submittedIdentities.has(identity)) return "Duplicate model, storage, and color variants are not allowed.";
+    submittedIdentities.add(identity);
+    if (product.brand === "Apple" && product.categoryKey === "iphone" && !isValidIphoneVariant(product.name, variant.storage, variant.color)) {
+      return `${product.name} is not available in ${variant.storage} / ${variant.color}.`;
+    }
     submittedSkus.add(sku);
   }
   return "";
@@ -634,12 +644,7 @@ function renderVariantManager(productId) {
       return;
     }
     if (button.dataset.variantAction === "duplicate") {
-      const copy = { ...variant, id: `${variant.id}-copy-${Date.now()}`, sku: `${variant.sku}-COPY-${Date.now()}` };
-      product.variants.push(copy);
-      products = products.map(normalizeProduct);
-      productStorage.saveProducts(products);
-      renderVariantManager(productId);
-      renderAdminPage("products", "Variant duplicated.");
+      window.alert("A model, storage, and color combination can only have one variant.");
       return;
     }
     form.classList.remove("hidden");
@@ -652,6 +657,8 @@ function renderVariantManager(productId) {
     const data = new FormData(form);
     const variant = product.variants.find((entry) => entry.id === data.get("variantId"));
     if (!variant) return;
+    if (product.brand === "Apple" && product.categoryKey === "iphone" && !isValidIphoneVariant(product.name, data.get("storage"), data.get("color"))) { window.alert("Choose a valid Apple storage and color combination."); return; }
+    if (product.variants.some((entry) => entry.id !== variant.id && entry.storage === data.get("storage") && entry.color === data.get("color"))) { window.alert("That model, storage, and color variant already exists."); return; }
     const sku = String(data.get("sku")).trim();
     const duplicateSku = products.some((entry) => entry.variants.some((item) => item.id !== variant.id && String(item.sku).toLowerCase() === sku.toLowerCase()));
     if (duplicateSku) { window.alert("That SKU already exists."); return; }
@@ -679,9 +686,15 @@ function renderAdminPage(section = "overview", notice = "") {
       <select name="brand" id="adminProductBrand" aria-label="Brand" required><option value="Apple">Apple</option><option value="Samsung">Samsung</option><option value="Redmi">Redmi</option><option value="Tecno">Tecno</option><option value="Infinix">Infinix</option><option value="Other">Other</option></select>
       <select name="model" id="adminProductModel" aria-label="Model" required>${IPHONE_MODELS.map((model) => `<option>${model}</option>`).join("")}</select>
       <select name="categoryKey" aria-label="Product category"><option value="iphone">iPhone</option><option value="samsung">Samsung</option><option value="android">Android phone</option><option value="tablets">Tablet</option><option value="accessories">Accessory</option><option value="audio">Audio</option><option value="smartwatches">Smartwatch</option><option value="repairs">Repair service</option></select>
-      <input name="bulkStorage" placeholder="Generate storage options: 128GB, 256GB" />
-      <input name="bulkColors" placeholder="Generate colors: Midnight, Blue" />
-      <button class="admin-action" id="generateVariants" type="button">GENERATE VARIANTS</button>
+      <div id="appleVariantControls">
+        <label>Storage<select name="catalogStorage" id="catalogStorage" required></select></label>
+        <fieldset class="catalog-color-picker"><legend>Available colors</legend><div id="catalogColors"></div></fieldset>
+      </div>
+      <div id="manualVariantControls" class="hidden">
+        <input name="bulkStorage" placeholder="Generate storage options: 128GB, 256GB" />
+        <input name="bulkColors" placeholder="Generate colors: Midnight, Blue" />
+        <button class="admin-action" id="generateVariants" type="button">GENERATE VARIANTS</button>
+      </div>
       <div class="admin-variant-builder" id="adminVariantBuilder">
         <div class="admin-variant-row">
           <input name="variantStorage" placeholder="Storage / RAM (e.g. 128GB)" />
@@ -699,7 +712,7 @@ function renderAdminPage(section = "overview", notice = "") {
           <input name="variantSim" placeholder="SIM / network" />
         </div>
       </div>
-      <button class="admin-action" id="addVariantRow" type="button">+ ADD ANOTHER VARIANT</button>
+      <button class="admin-action hidden" id="addVariantRow" type="button">+ ADD ANOTHER VARIANT</button>
       <label class="admin-image-upload">CHOOSE PRODUCT IMAGES<input name="images" id="adminProductImages" type="file" accept="image/*" multiple required /><span id="adminImageFileNames">No images selected</span></label>
       <div class="admin-image-preview" id="adminImagePreview" aria-live="polite"></div>
       <button class="primary-btn" type="submit">ADD PRODUCT</button>
@@ -769,30 +782,67 @@ function renderAdminPage(section = "overview", notice = "") {
   });
 
   const productImageInput = document.getElementById("adminProductImages");
-  document.getElementById("adminProductBrand")?.addEventListener("change", (event) => {
+  const brandInput = document.getElementById("adminProductBrand");
+  const modelInput = document.getElementById("adminProductModel");
+  const catalogStorageInput = document.getElementById("catalogStorage");
+  const catalogColors = document.getElementById("catalogColors");
+  const appleVariantControls = document.getElementById("appleVariantControls");
+  const manualVariantControls = document.getElementById("manualVariantControls");
+  const variantBuilder = document.getElementById("adminVariantBuilder");
+
+  const variantRow = (storage = "", color = "", locked = false) => `
+    <div class="admin-variant-row">
+      <input name="variantStorage" value="${escapeHtml(storage)}" placeholder="Storage / RAM (e.g. 128GB)" ${locked ? "readonly" : ""} required />
+      <input name="variantColor" value="${escapeHtml(color)}" placeholder="Color" ${locked ? "readonly" : ""} required />
+      <select name="variantCondition" aria-label="Condition"><option>New</option><option>Like New</option><option>Excellent</option><option>Good</option><option>Fair</option><option>Refurbished</option></select>
+      <input name="variantPrice" type="number" min="0" placeholder="Price" required />
+      <input name="variantStock" type="number" min="0" placeholder="Stock" required />
+      <input name="variantSku" placeholder="SKU" required />
+      <input name="variantWarranty" placeholder="Warranty" value="No Warranty" />
+      <input name="variantBatteryHealth" type="number" min="0" max="100" placeholder="Battery % (optional)" />
+      <input name="variantFaceId" placeholder="Face ID status" /><input name="variantTrueTone" placeholder="True Tone status" /><input name="variantDisplay" placeholder="Display status" /><input name="variantCamera" placeholder="Camera status" /><input name="variantSim" placeholder="SIM / network" />
+      ${locked ? "" : '<button class="admin-action danger remove-variant-row" type="button">REMOVE</button>'}
+    </div>`;
+
+  const updateCatalogOptions = () => {
+    const isAppleIphone = brandInput.value === "Apple" && document.querySelector("[name='categoryKey']").value === "iphone";
+    appleVariantControls.classList.toggle("hidden", !isAppleIphone);
+    manualVariantControls.classList.toggle("hidden", isAppleIphone);
+    catalogStorageInput.disabled = !isAppleIphone;
+    document.getElementById("addVariantRow").classList.toggle("hidden", isAppleIphone);
+    if (!isAppleIphone) return;
+    const model = modelInput.value;
+    const storages = Object.keys(iphoneCatalog[model]?.storages || {});
+    catalogStorageInput.innerHTML = storages.map((storage) => `<option value="${escapeHtml(storage)}">${escapeHtml(storage)}</option>`).join("");
+    const colors = getIphoneColors(model, catalogStorageInput.value);
+    catalogColors.innerHTML = colors.map((color) => `<label><input type="checkbox" name="catalogColor" value="${escapeHtml(color)}" /> ${escapeHtml(color)}</label>`).join("");
+    variantBuilder.innerHTML = "<p class=\"catalog-manager-note\">Select one or more colors to create individual stock variants.</p>";
+  };
+
+  const updateAppleColors = () => {
+    const colors = getIphoneColors(modelInput.value, catalogStorageInput.value);
+    catalogColors.innerHTML = colors.map((color) => `<label><input type="checkbox" name="catalogColor" value="${escapeHtml(color)}" /> ${escapeHtml(color)}</label>`).join("");
+    variantBuilder.innerHTML = "<p class=\"catalog-manager-note\">Select one or more colors to create individual stock variants.</p>";
+  };
+
+  brandInput?.addEventListener("change", (event) => {
     const modelInput = document.getElementById("adminProductModel");
     const models = event.target.value === "Samsung" ? SAMSUNG_MODELS : event.target.value === "Apple" ? IPHONE_MODELS : ["Other model"];
     modelInput.innerHTML = models.map((model) => `<option>${model}</option>`).join("");
+    updateCatalogOptions();
   });
+  modelInput?.addEventListener("change", updateCatalogOptions);
+  document.querySelector("[name='categoryKey']")?.addEventListener("change", updateCatalogOptions);
+  catalogStorageInput?.addEventListener("change", updateAppleColors);
+  catalogColors?.addEventListener("change", () => {
+    const selectedColors = [...catalogColors.querySelectorAll("input:checked")].map((input) => input.value);
+    variantBuilder.innerHTML = selectedColors.length
+      ? selectedColors.map((color) => variantRow(catalogStorageInput.value, color, true)).join("")
+      : "<p class=\"catalog-manager-note\">Select one or more colors to create individual stock variants.</p>";
+  });
+  updateCatalogOptions();
   document.getElementById("addVariantRow")?.addEventListener("click", () => {
-    document.getElementById("adminVariantBuilder").insertAdjacentHTML("beforeend", `
-      <div class="admin-variant-row">
-        <input name="variantStorage" placeholder="Storage / RAM" />
-        <input name="variantColor" placeholder="Color" />
-        <select name="variantCondition" aria-label="Condition"><option>New</option><option>Like New</option><option>Excellent</option><option>Good</option><option>Fair</option><option>Refurbished</option></select>
-        <input name="variantPrice" type="number" min="0" placeholder="Price" required />
-        <input name="variantStock" type="number" min="0" placeholder="Stock" required />
-        <input name="variantSku" placeholder="SKU" required />
-        <input name="variantWarranty" placeholder="Warranty" value="No Warranty" />
-        <input name="variantBatteryHealth" type="number" min="0" max="100" placeholder="Battery % (optional)" />
-        <input name="variantFaceId" placeholder="Face ID status" />
-        <input name="variantTrueTone" placeholder="True Tone status" />
-        <input name="variantDisplay" placeholder="Display status" />
-        <input name="variantCamera" placeholder="Camera status" />
-        <input name="variantSim" placeholder="SIM / network" />
-        <button class="admin-action danger remove-variant-row" type="button">REMOVE</button>
-      </div>
-    `);
+    variantBuilder.insertAdjacentHTML("beforeend", variantRow());
     adminPage.querySelectorAll(".remove-variant-row").forEach((button) => button.addEventListener("click", () => button.parentElement.remove()));
   });
   document.getElementById("generateVariants")?.addEventListener("click", () => {
@@ -800,19 +850,7 @@ function renderAdminPage(section = "overview", notice = "") {
     const colorValues = document.querySelector("[name='bulkColors']").value.split(",").map((value) => value.trim()).filter(Boolean);
     if (!storageValues.length || !colorValues.length) return;
     const builder = document.getElementById("adminVariantBuilder");
-    builder.innerHTML = storageValues.flatMap((storage) => colorValues.map((color) => `
-      <div class="admin-variant-row">
-        <input name="variantStorage" value="${escapeHtml(storage)}" />
-        <input name="variantColor" value="${escapeHtml(color)}" />
-        <select name="variantCondition" aria-label="Condition"><option>New</option><option>Like New</option><option>Excellent</option><option>Good</option><option>Fair</option><option>Refurbished</option></select>
-        <input name="variantPrice" type="number" min="0" placeholder="Price" required />
-        <input name="variantStock" type="number" min="0" placeholder="Stock" required />
-        <input name="variantSku" value="ARC-${String(document.querySelector("[name='model']").value).replace(/[^a-z0-9]/gi, "").toUpperCase()}-${storage.replace(/[^a-z0-9]/gi, "").toUpperCase()}-${color.replace(/[^a-z0-9]/gi, "").toUpperCase()}" required />
-        <input name="variantWarranty" placeholder="Warranty" value="No Warranty" />
-        <input name="variantBatteryHealth" type="number" min="0" max="100" placeholder="Battery % (optional)" />
-        <input name="variantFaceId" placeholder="Face ID status" /><input name="variantTrueTone" placeholder="True Tone status" /><input name="variantDisplay" placeholder="Display status" /><input name="variantCamera" placeholder="Camera status" /><input name="variantSim" placeholder="SIM / network" />
-      </div>
-    `)).join("");
+    builder.innerHTML = storageValues.flatMap((storage) => colorValues.map((color) => variantRow(storage, color))).join("");
   });
   productImageInput?.addEventListener("change", async () => {
     const preview = document.getElementById("adminImagePreview");
@@ -855,9 +893,10 @@ function renderAdminPage(section = "overview", notice = "") {
         images
       }));
       const firstVariant = variantRows[0];
-      const validationMessage = validateVariants(variantRows);
+      const productDetails = { name: data.get("model") || data.get("name"), brand: data.get("brand"), categoryKey: data.get("categoryKey") };
+      const validationMessage = validateVariants(variantRows, productDetails);
       if (validationMessage) throw new Error(validationMessage);
-      await adminProductAction("create", null, { name: data.get("model") || data.get("name"), brand: data.get("brand"), category: data.get("categoryKey"), categoryKey: data.get("categoryKey"), price: firstVariant.price, stock: variantRows.reduce((sum, variant) => sum + variant.stock, 0), storage: firstVariant.storage, color: firstVariant.color, condition: firstVariant.condition, sku: firstVariant.sku, warranty: firstVariant.warranty, images, variants: variantRows });
+      await adminProductAction("create", null, { ...productDetails, category: data.get("categoryKey"), price: firstVariant.price, stock: variantRows.reduce((sum, variant) => sum + variant.stock, 0), storage: firstVariant.storage, color: firstVariant.color, condition: firstVariant.condition, sku: firstVariant.sku, warranty: firstVariant.warranty, images, variants: variantRows });
       renderAdminPage("products", "Product added successfully.");
       adminPage.querySelector(".admin-notice")?.classList.add("admin-notice-success");
     } catch (error) {
@@ -1779,7 +1818,10 @@ function renderProductDetail(product, variantId = selectedDetailVariantId) {
   selectedDetailVariantId = variant.id;
   const variantImages = variant.images?.length ? variant.images : product.images || [];
   const variants = product.variants || [variant];
-  const uniqueValues = (key) => [...new Set(variants.map((entry) => entry[key]).filter(Boolean))];
+  const availableVariants = variants.filter((entry) => Number(entry.stock) > 0);
+  const visibleVariants = availableVariants.length ? availableVariants : variants;
+  const storageValues = [...new Set(visibleVariants.map((entry) => entry.storage).filter(Boolean))];
+  const colorValues = [...new Set(visibleVariants.filter((entry) => entry.storage === variant.storage).map((entry) => entry.color).filter(Boolean))];
   const thumbs = variantImages.map((image, index) => `
     <button class="thumb-btn ${index === 0 ? "active" : ""}" type="button" data-image="${image}" aria-label="View image ${index + 1}">
       ${createResponsiveImageMarkup(image, `${product.name} view ${index + 1}`, { width: 180, height: 160, loading: "lazy" })}
@@ -1820,11 +1862,11 @@ function renderProductDetail(product, variantId = selectedDetailVariantId) {
 
           <div class="variant-selector-group">
             <strong>Storage</strong>
-            <div class="variant-options">${uniqueValues("storage").map((value) => `<button type="button" class="variant-option ${variant.storage === value ? "active" : ""}" data-variant-field="storage" data-value="${escapeHtml(value)}">${escapeHtml(value)}</button>`).join("")}</div>
+            <div class="variant-options">${storageValues.map((value) => `<button type="button" class="variant-option ${variant.storage === value ? "active" : ""}" data-variant-field="storage" data-value="${escapeHtml(value)}">${escapeHtml(value)}</button>`).join("")}</div>
           </div>
           <div class="variant-selector-group">
             <strong>Color</strong>
-            <div class="variant-options">${uniqueValues("color").map((value) => `<button type="button" class="variant-option ${variant.color === value ? "active" : ""}" data-variant-field="color" data-value="${escapeHtml(value)}">${escapeHtml(value)}</button>`).join("")}</div>
+            <div class="variant-options">${colorValues.map((value) => `<button type="button" class="variant-option ${variant.color === value ? "active" : ""}" data-variant-field="color" data-value="${escapeHtml(value)}">${escapeHtml(value)}</button>`).join("")}</div>
           </div>
 
           <div class="detail-meta-list">
@@ -1897,8 +1939,8 @@ function renderProductDetail(product, variantId = selectedDetailVariantId) {
   document.querySelectorAll(".variant-option").forEach((button) => {
     button.addEventListener("click", () => {
       const field = button.dataset.variantField;
-      const candidate = variants.find((entry) => entry[field] === button.dataset.value && (field === "storage" ? entry.color === variant.color : entry.storage === variant.storage))
-        || variants.find((entry) => entry[field] === button.dataset.value);
+      const candidate = visibleVariants.find((entry) => entry[field] === button.dataset.value && (field === "storage" ? entry.color === variant.color : entry.storage === variant.storage))
+        || visibleVariants.find((entry) => entry[field] === button.dataset.value);
       if (candidate) renderProductDetail(product, candidate.id);
     });
   });
