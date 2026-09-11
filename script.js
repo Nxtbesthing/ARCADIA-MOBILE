@@ -1,4 +1,9 @@
 import { getIphoneColors, iphoneCatalog, iphoneModels, isValidIphoneVariant } from "./src/iphone-catalog.js";
+import { getSamsungColors, samsungCatalog, samsungModels, isValidSamsungVariant } from "./src/samsung-catalog.js";
+import { getRedmiColors, redmiCatalog, redmiModels, isValidRedmiVariant } from "./src/redmi-catalog.js";
+import { getTecnoColors, tecnoCatalog, tecnoModels, isValidTecnoVariant } from "./src/tecno-catalog.js";
+import { getItelColors, itelCatalog, itelModels, isValidItelVariant } from "./src/itel-catalog.js";
+import { getInfinixColors, infinixCatalog, infinixModels, isValidInfinixVariant } from "./src/infinix-catalog.js";
 
 const fallbackProducts = [
   {
@@ -234,7 +239,25 @@ const fallbackProducts = [
 ];
 
 const IPHONE_MODELS = iphoneModels;
-const SAMSUNG_MODELS = ["Galaxy S24", "Galaxy S24 Ultra", "Galaxy S23", "Galaxy S23 Ultra", "Galaxy S22", "Galaxy Note 20", "Galaxy Z Fold 6", "Galaxy Z Fold 5", "Galaxy Z Flip 6", "Galaxy Z Flip 5", "Galaxy A55", "Galaxy A35", "Galaxy A25", "Galaxy M55", "Galaxy M35"];
+const SAMSUNG_MODELS = samsungModels;
+const REDMI_MODELS = redmiModels;
+const TECNO_MODELS = tecnoModels;
+const ITEL_MODELS = itelModels;
+const INFINIX_MODELS = infinixModels;
+
+const structuredCatalogs = {
+  Apple: { catalog: iphoneCatalog, models: iphoneModels, getColors: getIphoneColors, isValid: isValidIphoneVariant, category: "iphone" },
+  Samsung: { catalog: samsungCatalog, models: samsungModels, getColors: getSamsungColors, isValid: isValidSamsungVariant, category: "samsung" },
+  REDMI: { catalog: redmiCatalog, models: redmiModels, getColors: getRedmiColors, isValid: isValidRedmiVariant, category: "redmi" },
+  TECNO: { catalog: tecnoCatalog, models: tecnoModels, getColors: getTecnoColors, isValid: isValidTecnoVariant, category: "tecno" },
+  itel: { catalog: itelCatalog, models: itelModels, getColors: getItelColors, isValid: isValidItelVariant, category: "itel" },
+  Infinix: { catalog: infinixCatalog, models: infinixModels, getColors: getInfinixColors, isValid: isValidInfinixVariant, category: "infinix" }
+};
+
+function getStructuredCatalog(brand, categoryKey) {
+  const catalog = structuredCatalogs[brand];
+  return catalog?.category === categoryKey ? catalog : null;
+}
 
 let products = [...fallbackProducts];
 
@@ -376,7 +399,8 @@ function validateVariants(variants, product = {}) {
     const identity = `${product.brand}|${product.name}|${variant.storage}|${variant.color}`.toLowerCase();
     if (submittedIdentities.has(identity)) return "Duplicate model, storage, and color variants are not allowed.";
     submittedIdentities.add(identity);
-    if (product.brand === "Apple" && product.categoryKey === "iphone" && !isValidIphoneVariant(product.name, variant.storage, variant.color)) {
+    const structuredCatalog = getStructuredCatalog(product.brand, product.categoryKey);
+    if (structuredCatalog && !structuredCatalog.isValid(product.name, variant.storage, variant.color)) {
       return `${product.name} is not available in ${variant.storage} / ${variant.color}.`;
     }
     submittedSkus.add(sku);
@@ -623,10 +647,23 @@ function renderVariantManager(productId) {
       <div><button class="admin-action" data-variant-action="edit" data-variant-id="${escapeHtml(variant.id)}">EDIT</button><button class="admin-action" data-variant-action="duplicate" data-variant-id="${escapeHtml(variant.id)}">DUPLICATE</button><button class="admin-action danger" data-variant-action="delete" data-variant-id="${escapeHtml(variant.id)}">DELETE</button></div>
     </div>
   `).join("");
-  adminPage.insertAdjacentHTML("beforeend", `<div class="admin-variant-modal" id="variantManagerModal"><div class="admin-variant-dialog"><button class="admin-access-close" id="closeVariantManager" type="button" aria-label="Close variant manager">×</button><p class="eyebrow">PRODUCT MANAGEMENT</p><h2>${escapeHtml(product.name)} VARIANTS</h2><div class="variant-manager-list">${variantRows}</div><form class="variant-edit-form hidden" id="variantEditForm"><input type="hidden" name="variantId" /><div class="variant-edit-grid"><label>Storage<input name="storage" required /></label><label>Color<input name="color" required /></label><label>RAM<input name="ram" /></label><label>Condition<input name="condition" required /></label><label>Price<input name="price" type="number" min="0" required /></label><label>Compare-at price<input name="oldPrice" type="number" min="0" /></label><label>Stock<input name="stock" type="number" min="0" required /></label><label>SKU<input name="sku" required /></label><label>Warranty<input name="warranty" /></label><label>Battery health<input name="batteryHealth" type="number" min="0" max="100" /></label><label>Face ID<input name="faceId" /></label><label>True Tone<input name="trueTone" /></label><label>Display<input name="display" /></label><label>Battery<input name="battery" /></label><label>Camera<input name="camera" /></label><label>Speaker<input name="speaker" /></label><label>Microphone<input name="microphone" /></label><label>Charging<input name="charging" /></label><label>SIM/network<input name="sim" /></label><label class="full-field">Notes<textarea name="notes" rows="3"></textarea></label><label class="full-field">Replace image<input name="image" type="file" accept="image/*" /></label></div><div class="confirmation-actions"><button class="primary-btn" type="submit">SAVE VARIANT</button><button class="secondary-btn" id="cancelVariantEdit" type="button">CANCEL</button></div></form></div></div>`);
+  const structuredCatalog = getStructuredCatalog(product.brand, product.categoryKey);
+  const storageControl = structuredCatalog
+    ? `<select name="storage" id="variantEditStorage" required>${Object.keys(structuredCatalog.catalog[product.name]?.storages || {}).map((storage) => `<option>${escapeHtml(storage)}</option>`).join("")}</select>`
+    : `<input name="storage" required />`;
+  const colorControl = structuredCatalog ? `<select name="color" id="variantEditColor" required></select>` : `<input name="color" required />`;
+  adminPage.insertAdjacentHTML("beforeend", `<div class="admin-variant-modal" id="variantManagerModal"><div class="admin-variant-dialog"><button class="admin-access-close" id="closeVariantManager" type="button" aria-label="Close variant manager">×</button><p class="eyebrow">PRODUCT MANAGEMENT</p><h2>${escapeHtml(product.name)} VARIANTS</h2><div class="variant-manager-list">${variantRows}</div><form class="variant-edit-form hidden" id="variantEditForm"><input type="hidden" name="variantId" /><div class="variant-edit-grid"><label>Storage${storageControl}</label><label>Color${colorControl}</label><label>RAM<input name="ram" /></label><label>Condition<input name="condition" required /></label><label>Price<input name="price" type="number" min="0" required /></label><label>Compare-at price<input name="oldPrice" type="number" min="0" /></label><label>Stock<input name="stock" type="number" min="0" required /></label><label>SKU<input name="sku" required /></label><label>Warranty<input name="warranty" /></label><label>Battery health<input name="batteryHealth" type="number" min="0" max="100" /></label><label>Face ID<input name="faceId" /></label><label>True Tone<input name="trueTone" /></label><label>Display<input name="display" /></label><label>Battery<input name="battery" /></label><label>Camera<input name="camera" /></label><label>Speaker<input name="speaker" /></label><label>Microphone<input name="microphone" /></label><label>Charging<input name="charging" /></label><label>SIM/network<input name="sim" /></label><label class="full-field">Notes<textarea name="notes" rows="3"></textarea></label><label class="full-field">Replace image<input name="image" type="file" accept="image/*" /></label></div><div class="confirmation-actions"><button class="primary-btn" type="submit">SAVE VARIANT</button><button class="secondary-btn" id="cancelVariantEdit" type="button">CANCEL</button></div></form></div></div>`);
 
   const modal = document.getElementById("variantManagerModal");
   const form = document.getElementById("variantEditForm");
+  const editStorage = document.getElementById("variantEditStorage");
+  const editColor = document.getElementById("variantEditColor");
+  const updateEditColors = (selectedColor = "") => {
+    if (!structuredCatalog || !editStorage || !editColor) return;
+    editColor.innerHTML = structuredCatalog.getColors(product.name, editStorage.value).map((color) => `<option ${color === selectedColor ? "selected" : ""}>${escapeHtml(color)}</option>`).join("");
+  };
+  editStorage?.addEventListener("change", () => updateEditColors());
+  updateEditColors();
   const close = () => modal.remove();
   document.getElementById("closeVariantManager").addEventListener("click", close);
   document.getElementById("cancelVariantEdit").addEventListener("click", () => form.classList.add("hidden"));
@@ -650,6 +687,7 @@ function renderVariantManager(productId) {
     }
     form.classList.remove("hidden");
     Object.entries(variant).forEach(([key, value]) => { const input = form.elements[key]; if (input && key !== "images") input.value = value ?? ""; });
+    updateEditColors(variant.color);
     form.elements.variantId.value = variant.id;
   }));
 
@@ -658,7 +696,8 @@ function renderVariantManager(productId) {
     const data = new FormData(form);
     const variant = product.variants.find((entry) => entry.id === data.get("variantId"));
     if (!variant) return;
-    if (product.brand === "Apple" && product.categoryKey === "iphone" && !isValidIphoneVariant(product.name, data.get("storage"), data.get("color"))) { window.alert("Choose a valid Apple storage and color combination."); return; }
+    const structuredCatalog = getStructuredCatalog(product.brand, product.categoryKey);
+    if (structuredCatalog && !structuredCatalog.isValid(product.name, data.get("storage"), data.get("color"))) { window.alert(`Choose a valid ${product.brand} storage and color combination.`); return; }
     if (product.variants.some((entry) => entry.id !== variant.id && entry.storage === data.get("storage") && entry.color === data.get("color"))) { window.alert("That model, storage, and color variant already exists."); return; }
     const sku = String(data.get("sku")).trim();
     const duplicateSku = products.some((entry) => entry.variants.some((item) => item.id !== variant.id && String(item.sku).toLowerCase() === sku.toLowerCase()));
@@ -684,9 +723,9 @@ function renderAdminPage(section = "overview", notice = "") {
   const sectionBody = section === "bill-board" ? renderBillboardSection() : section === "catalog" ? renderCatalogSection() : section === "products" ? `
     <form class="admin-product-form" id="adminProductForm">
       <input name="name" placeholder="Product name" required />
-      <select name="brand" id="adminProductBrand" aria-label="Brand" required><option value="Apple">Apple</option><option value="Samsung">Samsung</option><option value="Redmi">Redmi</option><option value="Tecno">Tecno</option><option value="Infinix">Infinix</option><option value="Other">Other</option></select>
+      <select name="brand" id="adminProductBrand" aria-label="Brand" required><option value="Apple">Apple</option><option value="Samsung">Samsung</option><option value="REDMI">REDMI</option><option value="TECNO">TECNO</option><option value="itel">itel</option><option value="Infinix">Infinix</option><option value="Other">Other</option></select>
       <select name="model" id="adminProductModel" aria-label="Model" required>${IPHONE_MODELS.map((model) => `<option>${model}</option>`).join("")}</select>
-      <select name="categoryKey" aria-label="Product category"><option value="iphone">iPhone</option><option value="samsung">Samsung</option><option value="android">Android phone</option><option value="tablets">Tablet</option><option value="accessories">Accessory</option><option value="audio">Audio</option><option value="smartwatches">Smartwatch</option><option value="repairs">Repair service</option></select>
+      <select name="categoryKey" aria-label="Product category"><option value="iphone">iPhone</option><option value="samsung">Samsung</option><option value="redmi">REDMI</option><option value="tecno">TECNO</option><option value="itel">itel</option><option value="infinix">Infinix</option><option value="android">Android phone</option><option value="tablets">Tablet</option><option value="accessories">Accessory</option><option value="audio">Audio</option><option value="smartwatches">Smartwatch</option><option value="repairs">Repair service</option></select>
       <div id="appleVariantControls">
         <label>Storage<select name="catalogStorage" id="catalogStorage" required></select></label>
         <fieldset class="catalog-color-picker"><legend>Available colors</legend><div id="catalogColors"></div></fieldset>
@@ -806,29 +845,32 @@ function renderAdminPage(section = "overview", notice = "") {
     </div>`;
 
   const updateCatalogOptions = () => {
-    const isAppleIphone = brandInput.value === "Apple" && document.querySelector("[name='categoryKey']").value === "iphone";
-    appleVariantControls.classList.toggle("hidden", !isAppleIphone);
-    manualVariantControls.classList.toggle("hidden", isAppleIphone);
-    catalogStorageInput.disabled = !isAppleIphone;
-    document.getElementById("addVariantRow").classList.toggle("hidden", isAppleIphone);
-    if (!isAppleIphone) return;
+    const structuredCatalog = getStructuredCatalog(brandInput.value, document.querySelector("[name='categoryKey']").value);
+    const usesCatalog = Boolean(structuredCatalog);
+    appleVariantControls.classList.toggle("hidden", !usesCatalog);
+    manualVariantControls.classList.toggle("hidden", usesCatalog);
+    catalogStorageInput.disabled = !usesCatalog;
+    document.getElementById("addVariantRow").classList.toggle("hidden", usesCatalog);
+    if (!usesCatalog) return;
     const model = modelInput.value;
-    const storages = Object.keys(iphoneCatalog[model]?.storages || {});
+    const storages = Object.keys(structuredCatalog.catalog[model]?.storages || {});
     catalogStorageInput.innerHTML = storages.map((storage) => `<option value="${escapeHtml(storage)}">${escapeHtml(storage)}</option>`).join("");
-    const colors = getIphoneColors(model, catalogStorageInput.value);
+    const colors = structuredCatalog.getColors(model, catalogStorageInput.value);
     catalogColors.innerHTML = colors.map((color) => `<label><input type="checkbox" name="catalogColor" value="${escapeHtml(color)}" /> ${escapeHtml(color)}</label>`).join("");
     variantBuilder.innerHTML = "<p class=\"catalog-manager-note\">Select one or more colors to create individual stock variants.</p>";
   };
 
   const updateAppleColors = () => {
-    const colors = getIphoneColors(modelInput.value, catalogStorageInput.value);
+    const structuredCatalog = getStructuredCatalog(brandInput.value, document.querySelector("[name='categoryKey']").value);
+    const colors = structuredCatalog?.getColors(modelInput.value, catalogStorageInput.value) || [];
     catalogColors.innerHTML = colors.map((color) => `<label><input type="checkbox" name="catalogColor" value="${escapeHtml(color)}" /> ${escapeHtml(color)}</label>`).join("");
     variantBuilder.innerHTML = "<p class=\"catalog-manager-note\">Select one or more colors to create individual stock variants.</p>";
   };
 
   brandInput?.addEventListener("change", (event) => {
-    const modelInput = document.getElementById("adminProductModel");
-    const models = event.target.value === "Samsung" ? SAMSUNG_MODELS : event.target.value === "Apple" ? IPHONE_MODELS : ["Other model"];
+    const categoryInput = document.querySelector("[name='categoryKey']");
+    if (structuredCatalogs[event.target.value]) categoryInput.value = structuredCatalogs[event.target.value].category;
+    const models = structuredCatalogs[event.target.value]?.models || ["Other model"];
     modelInput.innerHTML = models.map((model) => `<option>${model}</option>`).join("");
     updateCatalogOptions();
   });
