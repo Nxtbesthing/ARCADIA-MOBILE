@@ -1,3 +1,6 @@
+import { supabase } from './src/supabase.js'
+
+console.log('Supabase client:', supabase)
 import { getIphoneColors, iphoneCatalog, iphoneModels, isValidIphoneVariant } from "./src/iphone-catalog.js";
 import { getSamsungColors, samsungCatalog, samsungModels, isValidSamsungVariant } from "./src/samsung-catalog.js";
 import { getRedmiColors, redmiCatalog, redmiModels, isValidRedmiVariant } from "./src/redmi-catalog.js";
