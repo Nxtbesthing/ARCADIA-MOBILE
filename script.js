@@ -1,6 +1,6 @@
 import { supabase } from './src/supabase.js'
-
-console.log('Supabase client:', supabase)
+import { renderSupabaseInventory } from './src/admin-inventory.js'
+import { fetchStorefrontCatalog } from './src/storefront-data.js'
 import { getIphoneColors, iphoneCatalog, iphoneModels, isValidIphoneVariant } from "./src/iphone-catalog.js";
 import { getSamsungColors, samsungCatalog, samsungModels, isValidSamsungVariant } from "./src/samsung-catalog.js";
 import { getRedmiColors, redmiCatalog, redmiModels, isValidRedmiVariant } from "./src/redmi-catalog.js";
@@ -298,13 +298,17 @@ function getStructuredCatalog(brand, categoryKey) {
   return catalog?.category === categoryKey ? catalog : null;
 }
 
-let products = [...fallbackProducts];
+let products = [];
+let storefrontCategories = [];
+let storefrontLoadError = "";
 
 let selectedCategory = "all";
 let searchTerm = "";
 let cart = [];
 let wishlist = [];
 let customer = null;
+let customerOrders = [];
+let customerRepairs = [];
 let detailQuantity = 1;
 let selectedDetailVariantId = null;
 
@@ -485,7 +489,7 @@ const localBusinessSchema = document.getElementById("localBusinessSchema");
 const productSchema = document.getElementById("productSchema");
 const productGrid = document.getElementById("productGrid");
 const dealGrid = document.getElementById("dealGrid");
-const filterButtons = document.querySelectorAll(".filter-btn");
+const categoryGrid = document.querySelector(".category-grid");
 const searchInput = document.getElementById("searchInput");
 const searchResults = document.getElementById("searchResults");
 const cartPanel = document.getElementById("cartPanel");
@@ -511,18 +515,7 @@ const repairPage = document.getElementById("repairPage");
 const adminPage = document.getElementById("adminPage");
 const homeMain = document.getElementById("home");
 
-const paymentConfig = {
-  publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || ""
-};
-const localPaymentMethods = [
-  { id: "opay-transfer", name: "OPay", accountNumber: "8020376702", accountName: "Oliver Latnie Buenyen" },
-  { id: "moniepoint-transfer", name: "Moniepoint", accountNumber: "8020376702", accountName: "Oliver Latnie Buenyen" }
-];
 const ADMIN_SESSION_KEY = "arcadia-admin-authenticated";
-const LOCAL_ADMIN_CONFIG = {
-  email: "oliverbuenyen3@gmail.com",
-  password: "Oda3ry76033##"
-};
 const HOME_SECTION_HASHES = ["", "#home", "#products", "#accessories", "#repairs", "#deals", "#about", "#contact"];
 
 if ("scrollRestoration" in window.history) {
@@ -628,7 +621,7 @@ function validateCustomerFields(values) {
 }
 
 function isLocalAdminAuthenticated() {
-  return sessionStorage.getItem(ADMIN_SESSION_KEY) === "true";
+  return false;
 }
 
 function loadLocalAdminProducts() {
@@ -1112,11 +1105,19 @@ function getSearchMatches(query) {
     .filter(({ product, variants }) => terms.every((term) => getSearchableProductText(product).includes(term)) && variants.length);
 }
 
+function renderCategoryFilters() {
+  if (!categoryGrid) return;
+  const buttons = [
+    `<button class="filter-btn ${selectedCategory === "all" ? "active" : ""}" type="button" data-category="all">All</button>`,
+    ...storefrontCategories.map((category) => `<button class="filter-btn ${selectedCategory === category.slug ? "active" : ""}" type="button" data-category="${escapeHtml(category.slug)}">${escapeHtml(category.name)}</button>`)
+  ];
+  categoryGrid.innerHTML = buttons.join("");
+}
+
 function getFilteredProducts() {
   const terms = normalizeSearchText(searchTerm).split(" ").filter(Boolean);
   return products.filter((product) => {
-    const matchesCategory =
-      selectedCategory === "all" || product.categoryKey === selectedCategory;
+    const matchesCategory = selectedCategory === "all" || product.categoryKey === selectedCategory;
 
     const matchesSearch = terms.every((term) => getSearchableProductText(product).includes(term));
     return matchesCategory && matchesSearch;
@@ -1135,7 +1136,7 @@ function renderSearchResults() {
   searchResults.hidden = false;
   searchResults.innerHTML = matches.length
     ? matches.map(({ product, variants }) => `
-      <button class="search-result" type="button" role="option" data-product-id="${product.id}">
+      <button class="search-result" type="button" role="option" data-product-id="${escapeHtml(product.id)}">
         <img src="${escapeHtml(product.images?.[0] || "arcadia-logo.png.jpeg")}" alt="" />
         <span class="search-result-copy"><strong>${escapeHtml(product.name)}</strong><small>${variants.slice(0, 3).map((variant) => `${escapeHtml(variant.storage)} / ${escapeHtml(variant.color)} · ${Number(variant.stock) > 0 ? `${variant.stock} in stock` : "Out of stock"}`).join("<br />")}</small></span>
         <b>${formatCurrency(variants[0].price)}</b>
@@ -1145,7 +1146,7 @@ function renderSearchResults() {
 
   searchResults.querySelectorAll(".search-result").forEach((result) => result.addEventListener("click", () => {
     searchResults.hidden = true;
-    openProductDetail(Number(result.dataset.productId));
+    openProductDetail(result.dataset.productId);
   }));
 }
 
@@ -1255,8 +1256,8 @@ function renderProducts() {
   if (items.length === 0) {
     productGrid.innerHTML = `
       <div class="product-empty">
-        <h3>No products match your search.</h3>
-        <p>Try iPhone 13, Samsung, charger, AirPods, power bank, or screen protector.</p>
+        <h3>${storefrontLoadError ? "Products are temporarily unavailable." : products.length ? "No products match your search." : "No products are available yet."}</h3>
+        <p>${storefrontLoadError ? escapeHtml(storefrontLoadError) : "New Arcadia inventory will appear here."}</p>
       </div>
     `;
     return;
@@ -1265,18 +1266,18 @@ function renderProducts() {
   productGrid.innerHTML = items
     .map(
       (product) => `
-        <article class="product-card" data-product-id="${product.id}" tabindex="0" role="button" aria-label="View ${product.name}">
+        <article class="product-card" data-product-id="${escapeHtml(product.id)}" tabindex="0" role="button" aria-label="View ${escapeHtml(product.name)}">
           <div class="product-visual">
-            <button class="wishlist-toggle ${wishlist.includes(product.id) ? "active" : ""}" type="button" aria-label="${wishlist.includes(product.id) ? "Remove" : "Add"} ${product.name} ${wishlist.includes(product.id) ? "from" : "to"} wishlist" data-id="${product.id}">
-              ${wishlist.includes(product.id) ? "♥" : "♡"}
+            <button class="wishlist-toggle ${isInWishlist(product.id) ? "active" : ""}" type="button" aria-label="${isInWishlist(product.id) ? "Remove" : "Add"} ${escapeHtml(product.name)} ${isInWishlist(product.id) ? "from" : "to"} wishlist" data-id="${escapeHtml(product.id)}">
+              ${isInWishlist(product.id) ? "♥" : "♡"}
             </button>
             ${createResponsiveImageMarkup(product.images[0], product.name, { width: 600, height: 420, loading: "lazy" })}
             <span class="product-badge">${product.discount}% OFF</span>
           </div>
 
           <div class="product-card-body">
-            <span class="product-brand">${product.brand}</span>
-            <h3>${product.name}</h3>
+            <span class="product-brand">${escapeHtml(product.brand)}</span>
+            <h3>${escapeHtml(product.name)}</h3>
             <div class="rating-line">
               <span class="stars">★★★★★</span>
               <span class="rating-score">${product.rating}</span>
@@ -1303,13 +1304,13 @@ function renderProducts() {
   document.querySelectorAll(".product-card").forEach((card) => {
     card.addEventListener("click", (event) => {
       if (event.target.closest("button")) return;
-      openProductDetail(Number(card.dataset.productId));
+      openProductDetail(card.dataset.productId);
     });
 
     card.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        openProductDetail(Number(card.dataset.productId));
+        openProductDetail(card.dataset.productId);
       }
     });
   });
@@ -1317,14 +1318,14 @@ function renderProducts() {
   document.querySelectorAll(".add-btn").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
-      addToCart(Number(button.dataset.id));
+      addToCart(button.dataset.id);
     });
   });
 
   document.querySelectorAll(".wishlist-toggle").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
-      toggleWishlist(Number(button.dataset.id));
+      toggleWishlist(button.dataset.id);
     });
   });
 }
@@ -1344,9 +1345,13 @@ function loadWishlistFromStorage() {
   }
 }
 
+function isInWishlist(productId) {
+  return wishlist.some((id) => String(id) === String(productId));
+}
+
 function toggleWishlist(productId) {
-  wishlist = wishlist.includes(productId)
-    ? wishlist.filter((id) => id !== productId)
+  wishlist = isInWishlist(productId)
+    ? wishlist.filter((id) => String(id) !== String(productId))
     : [...wishlist, productId];
 
   saveWishlistToStorage();
@@ -1377,10 +1382,25 @@ function loadCustomerFromStorage() {
   syncAdminButtonState();
 }
 
+async function refreshCustomerRecords() {
+  if (!supabaseAuthUser) {
+    customerOrders = [];
+    customerRepairs = [];
+    return;
+  }
+  const [orders, repairs] = await Promise.all([
+    supabase.from("orders").select("id,order_number,status,payment_status,grand_total,created_at").eq("user_id", supabaseAuthUser.id).order("created_at", { ascending: false }).limit(25),
+    supabase.from("repair_requests").select("id,ticket_number,device,problem,status,created_at").eq("user_id", supabaseAuthUser.id).order("created_at", { ascending: false }).limit(25)
+  ]);
+  if (orders.error) throw orders.error;
+  if (repairs.error) throw repairs.error;
+  customerOrders = orders.data || [];
+  customerRepairs = repairs.data || [];
+}
+
 function renderAccountPage() {
   syncAdminButtonState();
   if (customer) {
-    const orderCount = loadOrdersFromStorage().length;
     accountPage.innerHTML = `
       <div class="container account-shell">
         <div class="account-heading">
@@ -1389,19 +1409,34 @@ function renderAccountPage() {
           <p>Welcome back, ${escapeHtml(customer.fullName)}.</p>
         </div>
         <div class="account-dashboard">
-          <a class="account-card" href="#account"><strong>Orders</strong><span>${orderCount} order${orderCount === 1 ? "" : "s"}</span></a>
+          <a class="account-card" href="#account"><strong>Orders</strong><span>${customerOrders.length} order${customerOrders.length === 1 ? "" : "s"}</span></a>
           <a class="account-card" href="#wishlist"><strong>Wishlist</strong><span>${wishlist.length} saved item${wishlist.length === 1 ? "" : "s"}</span></a>
-          <a class="account-card" href="#account"><strong>Saved Addresses</strong><span>Manage delivery details</span></a>
-          <a class="account-card" href="#account"><strong>Repair Requests</strong><span>Track device service</span></a>
-          <a class="account-card" href="#account"><strong>Profile</strong><span>${escapeHtml(customer.phone)}</span></a>
-          <a class="account-card" href="#account"><strong>Settings</strong><span>Account preferences</span></a>
+          <a class="account-card" href="#account"><strong>Repair Requests</strong><span>${customerRepairs.length} request${customerRepairs.length === 1 ? "" : "s"}</span></a>
         </div>
+        <section class="account-section"><h2>Profile</h2><form class="checkout-fields" id="profileForm"><label>Full name<input name="fullName" value="${escapeHtml(customer.fullName)}" required /></label><label>Phone<input name="phone" value="${escapeHtml(customer.phone === "Phone not added" ? "" : customer.phone)}" type="tel" required /></label><label>Email<input value="${escapeHtml(customer.email)}" type="email" disabled /></label><button class="primary-btn" type="submit">SAVE PROFILE</button><p class="form-message" id="profileMessage" role="status"></p></form></section>
+        <section class="account-section"><h2>Recent orders</h2><div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Order</th><th>Status</th><th>Payment</th><th>Total</th><th>Date</th></tr></thead><tbody>${customerOrders.map((order) => `<tr><td>${escapeHtml(order.order_number)}</td><td>${escapeHtml(order.status)}</td><td>${escapeHtml(order.payment_status)}</td><td>${formatCurrency(order.grand_total)}</td><td>${new Date(order.created_at).toLocaleDateString()}</td></tr>`).join("") || '<tr><td colspan="5">No orders yet.</td></tr>'}</tbody></table></div></section>
+        <section class="account-section"><h2>Repair requests</h2><div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Ticket</th><th>Device</th><th>Problem</th><th>Status</th></tr></thead><tbody>${customerRepairs.map((repair) => `<tr><td>${escapeHtml(repair.ticket_number)}</td><td>${escapeHtml(repair.device)}</td><td>${escapeHtml(repair.problem)}</td><td>${escapeHtml(repair.status)}</td></tr>`).join("") || '<tr><td colspan="4">No repair requests yet.</td></tr>'}</tbody></table></div></section>
         <button type="button" class="account-logout" id="accountLogout">LOGOUT</button>
       </div>
     `;
+    document.getElementById("profileForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = new FormData(event.currentTarget);
+      const values = { full_name: String(data.get("fullName") || "").trim(), phone: String(data.get("phone") || "").trim() };
+      const message = document.getElementById("profileMessage");
+      const { error } = await supabase.from("profiles").update(values).eq("id", supabaseAuthUser.id);
+      if (error) { message.textContent = error.message; return; }
+      customer = { ...customer, fullName: values.full_name, phone: values.phone };
+      message.textContent = "Profile updated.";
+    });
     document.getElementById("accountLogout").addEventListener("click", async () => {
+      await supabase.auth.signOut();
+      supabaseAuthUser = null;
       customer = null;
-      localStorage.removeItem(CUSTOMER_STORAGE_KEY);
+      customerOrders = [];
+      customerRepairs = [];
+      loadCartFromStorage();
+      updateCart();
       syncAdminButtonState();
       renderAccountPage();
     });
@@ -1445,52 +1480,56 @@ function renderAccountPage() {
     const message = document.getElementById("signupMessage");
     const validationError = validateCustomerFields({ name: formData.get("fullName"), phone: formData.get("phone"), email: formData.get("email") });
     if (validationError) { message.textContent = validationError; return; }
-    customer = {
-      fullName: String(formData.get("fullName")).trim(),
+    const fullName = String(formData.get("fullName")).trim();
+    const phone = String(formData.get("phone")).trim();
+    const { data, error } = await supabase.auth.signUp({
       email: String(formData.get("email")).trim().toLowerCase(),
-      phone: String(formData.get("phone")).trim(),
-      isAdmin: false
-    };
-    saveCustomerToStorage();
-    syncAdminButtonState();
+      password: String(formData.get("password") || ""),
+      options: { data: { full_name: fullName, phone } }
+    });
+    if (error) { message.textContent = error.message; return; }
+    if (!data.session) {
+      message.textContent = "Check your email to confirm your account before signing in.";
+      return;
+    }
+    supabaseAuthUser = data.user;
+    await supabase.from("profiles").update({ full_name: fullName, phone }).eq("id", data.user.id);
+    customer = { fullName, email: data.user.email, phone };
+    await refreshCustomerRecords();
+    await loadAuthenticatedCart();
     renderAccountPage();
   });
 
   document.getElementById("loginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    const email = String(formData.get("email")).trim();
+    const email = String(formData.get("email")).trim().toLowerCase();
     const message = document.getElementById("loginMessage");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || String(formData.get("password")).length < 6) { message.textContent = "Enter a valid email and password."; return; }
-    customer = { fullName: email.split("@")[0], email, phone: "Phone not added", isAdmin: false };
-    saveCustomerToStorage();
-    syncAdminButtonState();
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password: String(formData.get("password")) });
+    if (error) { message.textContent = error.message; return; }
+    supabaseAuthUser = data.user;
+    const { data: profile } = await supabase.from("profiles").select("full_name,phone").eq("id", data.user.id).maybeSingle();
+    customer = { fullName: profile?.full_name || data.user.user_metadata?.full_name || email.split("@")[0], email, phone: profile?.phone || "Phone not added" };
+    await refreshCustomerRecords();
+    await loadAuthenticatedCart();
     renderAccountPage();
   });
 
-  document.getElementById("forgotPassword").addEventListener("click", () => {
-    document.getElementById("loginMessage").textContent = "Password reset instructions will be sent to your email.";
+  document.getElementById("forgotPassword").addEventListener("click", async () => {
+    const email = String(document.querySelector("#loginForm [name='email']").value || "").trim().toLowerCase();
+    const message = document.getElementById("loginMessage");
+    if (!email) { message.textContent = "Enter your email address first."; return; }
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/#account` });
+    message.textContent = error ? error.message : "If an account exists for that email, password reset instructions will be sent.";
   });
 }
 
 function getCheckoutPaymentMarkup() {
-  const bankMethods = localPaymentMethods.map((method) => `
-    <label class="payment-option">
-      <input type="radio" name="paymentMethod" value="${method.id}" required />
-      <span><strong>${method.name}</strong><small>Account: ${method.accountNumber} | Name: ${method.accountName}</small></span>
-    </label>
-  `).join("");
-
   return `
-    <label class="payment-option payment-option-primary">
-      <input type="radio" name="paymentMethod" value="paystack" required />
-      <span><strong>Pay with Paystack</strong><small>Cards, bank transfer, USSD, and supported Nigerian payment methods.</small></span>
-    </label>
-    ${bankMethods}
-    <label class="payment-confirmation-option">
-      <input type="checkbox" name="paymentConfirmed" value="yes" />
-      <span>I have completed the payment transfer.</span>
-    </label>
+    <div class="payment-option payment-option-primary"><span><strong>Bank transfer only</strong><small>Payment remains pending until Arcadia verifies the transfer.</small></span></div>
+    <div class="payment-option"><span><strong>OPay</strong><small>Account: 8020376702 | Name: Oliver Latnie</small></span></div>
+    <div class="payment-option"><span><strong>Moniepoint</strong><small>Account: 8020376702 | Name: Oliver Buenyen</small></span></div>
   `;
 }
 
@@ -1507,7 +1546,8 @@ function calculateDeliveryFee(state, city) {
     if (normalizedCity === "jos" || normalizedCity.includes("jos ")) return DELIVERY_RATES.jos;
     return DELIVERY_RATES["other plateau"];
   }
-  return DELIVERY_RATES[normalizedState] || DELIVERY_RATES[normalizedCity] || 0;
+  if (normalizedCity === "port harcourt") return 5500;
+  return DELIVERY_RATES[normalizedState] || DELIVERY_RATES[normalizedCity] || 5000;
 }
 
 function updateCheckoutDeliveryFee() {
@@ -1521,30 +1561,6 @@ function updateCheckoutDeliveryFee() {
   document.getElementById("checkoutTotal").textContent = formatCurrency(subtotal + delivery);
 }
 
-function createLocalOrder(paymentMethod, reference, formData, total) {
-  return {
-    orderNumber: `ARC-${Date.now()}`,
-    status: paymentMethod === "paystack" ? "Pending" : "Payment received",
-    paymentStatus: paymentMethod === "paystack" ? "pending" : "paid",
-    createdAt: new Date().toISOString(),
-    paymentMethod,
-    paymentReference: reference || "local-checkout",
-    total,
-    customer: {
-      name: formData.get("name"),
-      phone: formData.get("phone"),
-      email: formData.get("email")
-    },
-    delivery: {
-      method: formData.get("fulfillment"),
-      state: formData.get("state"),
-      city: formData.get("city"),
-      address: formData.get("address")
-    },
-    items: cart.map((item) => ({ ...item }))
-  };
-}
-
 function loadOrdersFromStorage() {
   try {
     const savedOrders = JSON.parse(localStorage.getItem(ORDERS_STORAGE_KEY) || "[]");
@@ -1554,41 +1570,12 @@ function loadOrdersFromStorage() {
   }
 }
 
-function getNextOrderNumber(orders) {
-  const year = new Date().getFullYear();
-  const prefix = `ARC-${year}-`;
-  const highestNumber = orders.reduce((highest, order) => {
-    if (!String(order.orderNumber || "").startsWith(prefix)) return highest;
-    const sequence = Number(String(order.orderNumber).replace(prefix, ""));
-    return Number.isFinite(sequence) ? Math.max(highest, sequence) : highest;
-  }, 0);
-  return `${prefix}${String(highestNumber + 1).padStart(5, "0")}`;
-}
-
-function saveOrder(order) {
-  const orders = loadOrdersFromStorage();
-  orders.push(order);
-  localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(orders));
-}
-
-function decrementInventoryAfterOrder(items) {
-  items.forEach((item) => {
-    const product = products.find((entry) => entry.id === item.id);
-    if (product) product.stock = Math.max(0, product.stock - item.quantity);
-    const variant = product?.variants?.find((entry) => entry.id === item.variantId);
-    if (variant) variant.stock = Math.max(0, variant.stock - item.quantity);
-  });
-  productStorage.saveProducts(products);
-  renderDeals();
-  renderProducts();
-}
-
 function renderOrderConfirmation(order) {
   const receiptText = [
     "ARCADIA MOBILE RECEIPT",
     `Order: ${order.orderNumber}`,
     `Total: ${formatCurrency(order.total)}`,
-    `Payment: ${order.paymentMethod}`,
+    "Payment: Bank transfer pending",
     `Status: ${order.status}`,
     `Customer: ${order.customer.name}`
   ].join("\n");
@@ -1599,22 +1586,22 @@ function renderOrderConfirmation(order) {
 
   checkoutPage.innerHTML = `
     <div class="container confirmation-shell">
-      <div class="confirmation-mark" aria-label="Payment successful">✓</div>
-      <p class="eyebrow">PAYMENT SUCCESSFUL</p>
-      <h1>RECEIPT READY</h1>
+      <div class="confirmation-mark" aria-label="Order placed">✓</div>
+      <p class="eyebrow">ORDER PLACED · PAYMENT PENDING</p>
+      <h1>TRANSFER INSTRUCTIONS</h1>
       <div class="confirmation-details">
-        <div><span>Order</span><strong>${order.orderNumber}</strong></div>
+        <div><span>Order</span><strong>${escapeHtml(order.orderNumber)}</strong></div>
         <div><span>Total</span><strong>${formatCurrency(order.total)}</strong></div>
-        <div><span>Status</span><strong class="status-badge">${order.status}</strong></div>
-        <div><span>Status</span><strong class="status-badge">${escapeHtml(order.status)}</strong></div>
+        <div><span>Order status</span><strong class="status-badge">Pending</strong></div>
+        <div><span>Payment status</span><strong class="status-badge">Pending</strong></div>
       </div>
-      <p class="confirmation-note">Your payment has been recorded. Send this receipt for confirmation before continuing to shop.</p>
-      <div class="receipt-actions" aria-label="Send receipt">
-        <a class="secondary-btn" href="mailto:${encodeURIComponent(order.customer.email)}?subject=${emailSubject}&body=${emailBody}">EMAIL RECEIPT</a>
-        <a class="secondary-btn" href="${whatsappUrl}" target="_blank" rel="noopener">SEND ON WHATSAPP</a>
+      <p class="confirmation-note">Transfer the exact amount to either account. Your order remains pending until Arcadia verifies payment.</p>
+      <div class="confirmation-details">
+        <div><span>OPay</span><strong>8020376702 · Oliver Latnie</strong></div>
+        <div><span>Moniepoint</span><strong>8020376702 · Oliver Buenyen</strong></div>
       </div>
       <div class="confirmation-actions">
-        <a class="primary-btn" href="#account">VIEW MY ACCOUNT</a>
+        <a class="primary-btn" href="#account">VIEW MY ORDERS</a>
         <a class="secondary-btn" href="#products">CONTINUE SHOPPING</a>
       </div>
     </div>
@@ -1717,8 +1704,19 @@ function renderRepairTracking(repair = null, errorMessage = "") {
   document.getElementById("trackingForm").addEventListener("submit", (event) => {
     event.preventDefault();
     const repairId = new FormData(event.currentTarget).get("repairId").trim().toUpperCase();
-    const matchingRepair = loadRepairsFromStorage().find((item) => item.repairId.toUpperCase() === repairId);
-    renderRepairTracking(matchingRepair, matchingRepair ? "" : "We could not find that repair number. Check it and try again.");
+    if (!supabaseAuthUser) {
+      renderRepairTracking(null, "Sign in to view repair requests linked to your account.");
+      return;
+    }
+    supabase.from("repair_requests")
+      .select("id,ticket_number,status,device,problem,created_at")
+      .eq("ticket_number", repairId)
+      .eq("user_id", supabaseAuthUser.id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        const repair = data ? { ...data, repairId: data.ticket_number } : null;
+        renderRepairTracking(repair, error ? error.message : repair ? "" : "We could not find that repair number on your account.");
+      });
   });
 }
 
@@ -1764,26 +1762,37 @@ function renderRepairBooking() {
     window.location.hash = "";
   });
 
-  document.getElementById("repairForm").addEventListener("submit", (event) => {
+  document.getElementById("repairForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    const repairs = loadRepairsFromStorage();
-    const repair = {
-      repairId: getNextRepairId(repairs),
-      createdAt: new Date().toISOString(),
-      status: "Requested",
-      statusOptions: REPAIR_STATUSES,
-      device: formData.get("device"),
-      problem: formData.get("problem"),
-      customer: { name: formData.get("name"), phone: formData.get("phone"), email: formData.get("email") },
-      deviceDetails: formData.get("deviceDetails"),
-      problemDetails: formData.get("problemDetails"),
-      additionalInformation: formData.get("additionalInformation"),
-      preferredDate: formData.get("preferredDate")
-    };
-    repairs.push(repair);
-    localStorage.setItem(REPAIRS_STORAGE_KEY, JSON.stringify(repairs));
-    renderRepairConfirmation(repair);
+    const submitButton = event.currentTarget.querySelector("button[type='submit']");
+    submitButton.disabled = true;
+    try {
+      const payload = {
+        ticket_number: `REP-${new Date().getFullYear()}-${crypto.randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`,
+        user_id: supabaseAuthUser?.id || null,
+        customer_name: String(formData.get("name") || "").trim(),
+        customer_phone: String(formData.get("phone") || "").trim(),
+        customer_email: String(formData.get("email") || "").trim().toLowerCase(),
+        device: String(formData.get("device") || "").trim(),
+        device_details: String(formData.get("deviceDetails") || "").trim(),
+        problem: String(formData.get("problem") || "").trim(),
+        description: [String(formData.get("problemDetails") || "").trim(), String(formData.get("additionalInformation") || "").trim()].filter(Boolean).join("\n\n") || null,
+        preferred_date: String(formData.get("preferredDate") || "") || null
+      };
+      const { data, error } = await supabase.from("repair_requests").insert(payload).select("ticket_number,status,created_at").single();
+      if (error) throw error;
+      if (supabaseAuthUser) await refreshCustomerRecords();
+      renderRepairConfirmation({ repairId: data.ticket_number, status: data.status, createdAt: data.created_at });
+    } catch (error) {
+      submitButton.disabled = false;
+      let message = repairPage.querySelector("[data-repair-submit-message]");
+      if (!message) {
+        event.currentTarget.insertAdjacentHTML("beforeend", '<p class="form-message" data-repair-submit-message role="alert"></p>');
+        message = repairPage.querySelector("[data-repair-submit-message]");
+      }
+      message.textContent = error.message || "Repair request could not be submitted.";
+    }
   });
 }
 
@@ -1846,7 +1855,7 @@ function renderCheckoutPage() {
           <section class="checkout-section">
             <h2>Payment</h2>
             <div class="payment-options">${paymentMarkup}</div>
-            <p class="payment-note">After transferring payment, confirm it below to create your local order receipt.</p>
+            <p class="payment-note">Place the order first. Transfer confirmation is handled by Arcadia; this site will not mark transfers as paid automatically.</p>
           </section>
           <button class="primary-btn place-order-btn" type="submit">PLACE ORDER</button>
           <p class="form-message" id="checkoutMessage" role="status"></p>
@@ -1887,70 +1896,71 @@ function renderCheckoutPage() {
   fulfillmentInputs.forEach((input) => input.addEventListener("change", syncFulfillment));
   syncFulfillment();
 
-  const paymentConfirmation = document.querySelector("#checkoutForm input[name='paymentConfirmed']");
-  document.querySelectorAll("#checkoutForm input[name='paymentMethod']").forEach((input) => {
-    input.addEventListener("change", () => {
-      const isTransfer = input.checked && input.value !== "paystack";
-      paymentConfirmation.required = isTransfer;
-      paymentConfirmation.closest(".payment-confirmation-option").hidden = !isTransfer;
-    });
-  });
-  paymentConfirmation.closest(".payment-confirmation-option").hidden = true;
-
   document.getElementById("checkoutForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    const paymentMethod = formData.get("paymentMethod");
-    const currentDelivery = formData.get("fulfillment") === "pickup"
-      ? 0
-      : calculateDeliveryFee(formData.get("state"), formData.get("city"));
-    const currentTotal = subtotal + currentDelivery;
     const submitButton = event.currentTarget.querySelector(".place-order-btn");
     const message = document.getElementById("checkoutMessage");
+    if (!supabaseAuthUser) {
+      message.textContent = "Sign in to your customer account before placing an order.";
+      const link = document.createElement("a");
+      link.href = "#account";
+      link.className = "form-account-link";
+      link.textContent = "SIGN IN / CREATE ACCOUNT";
+      message.append(" ", link);
+      return;
+    }
+    if (String(formData.get("email") || "").trim().toLowerCase() !== String(supabaseAuthUser.email || "").toLowerCase()) {
+      message.textContent = "Use the email address on your signed-in account for this order.";
+      return;
+    }
     submitButton.disabled = true;
     message.textContent = "";
-
-    const completePayment = async (reference) => {
+    try {
+      const { data, error } = await supabase.rpc("place_arcadia_order", {
+        p_items: cart.map((item) => ({ variant_id: String(item.variantId), quantity: Number(item.quantity) })),
+        p_delivery_method: formData.get("fulfillment"),
+        p_delivery_state: formData.get("state") || null,
+        p_delivery_city: formData.get("city") || null,
+        p_delivery_address: formData.get("address") || null,
+        p_customer_name: String(formData.get("name") || "").trim(),
+        p_customer_phone: String(formData.get("phone") || "").trim()
+      });
+      if (error) throw error;
+      const order = {
+        orderNumber: data.order_number,
+        status: data.status,
+        paymentStatus: data.payment_status,
+        paymentMethod: "Bank transfer",
+        total: Number(data.grand_total),
+        customer: { name: String(formData.get("name") || "").trim(), email: supabaseAuthUser.email }
+      };
+      cart = [];
+      saveCartToStorage();
+      updateCart();
       try {
-        const order = createLocalOrder(paymentMethod, reference, formData, currentTotal);
-        saveOrder(order);
-        decrementInventoryAfterOrder(cart);
-        cart = [];
-        saveCartToStorage();
-        updateCart();
-        renderOrderConfirmation(order);
-      } catch (error) {
-        message.textContent = error.message;
-        submitButton.disabled = false;
+        const catalog = await fetchStorefrontCatalog();
+        products = catalog.products;
+        storefrontCategories = catalog.categories;
+        renderCategoryFilters();
+        renderProducts();
+        renderDeals();
+        updateSeoSchema();
+      } catch (refreshError) {
+        console.warn("Order placed; storefront stock refresh will retry on next load.");
       }
-    };
-
-    if (paymentMethod !== "paystack") {
-      await completePayment(null);
-      return;
-    }
-
-    if (!paymentConfig.publicKey || !window.PaystackPop) {
-      message.textContent = "Paystack is not configured yet. Add the public key and verification endpoint to continue.";
+      await refreshCustomerRecords();
+      renderOrderConfirmation(order);
+    } catch (error) {
+      message.textContent = error.message || "The order could not be placed.";
       submitButton.disabled = false;
-      return;
     }
-
-    const handler = window.PaystackPop.setup({
-      key: paymentConfig.publicKey,
-      email: formData.get("email"),
-      amount: Math.round(total * 100),
-      currency: "NGN",
-      callback: (response) => completePayment(response.reference),
-      onClose: () => { submitButton.disabled = false; }
-    });
-    handler.openIframe();
   });
 }
 
 function renderWishlistPage() {
   const savedProducts = wishlist
-    .map((productId) => products.find((product) => product.id === productId))
+    .map((productId) => products.find((product) => String(product.id) === String(productId)))
     .filter(Boolean);
 
   wishlistPage.innerHTML = `
@@ -1985,16 +1995,16 @@ function renderWishlistPage() {
   });
 
   wishlistPage.querySelectorAll(".wishlist-cart-btn").forEach((button) => {
-    button.addEventListener("click", () => addToCart(Number(button.dataset.id)));
+    button.addEventListener("click", () => addToCart(button.dataset.id));
   });
 
   wishlistPage.querySelectorAll(".wishlist-remove-btn").forEach((button) => {
-    button.addEventListener("click", () => toggleWishlist(Number(button.dataset.id)));
+    button.addEventListener("click", () => toggleWishlist(button.dataset.id));
   });
 }
 
 function openProductDetail(productId) {
-  const product = products.find((item) => item.id === productId);
+  const product = products.find((item) => String(item.id) === String(productId));
   if (!product) return;
 
   if (searchResults) {
@@ -2158,11 +2168,11 @@ function renderProductDetail(product, variantId = selectedDetailVariantId) {
 
   document.querySelector(".detail-primary")?.addEventListener("click", () => {
     const button = document.querySelector(".detail-primary");
-    addToCart(Number(button.dataset.productId), detailQuantity, button.dataset.variantId);
+    addToCart(button.dataset.productId, detailQuantity, button.dataset.variantId);
   });
   document.querySelector(".detail-secondary")?.addEventListener("click", () => {
     const button = document.querySelector(".detail-secondary");
-    addToCart(Number(button.dataset.productId), detailQuantity, button.dataset.variantId);
+    addToCart(button.dataset.productId, detailQuantity, button.dataset.variantId);
     window.location.hash = "checkout";
   });
 }
@@ -2248,39 +2258,17 @@ function showRepairView() {
 }
 
 function renderAdminLogin() {
+  sessionStorage.removeItem(ADMIN_SESSION_KEY);
   adminPage.innerHTML = `
     <div class="container account-shell">
       <div class="account-heading">
         <p class="eyebrow">ARCADIA ADMINISTRATION</p>
-        <h1>ADMIN LOGIN</h1>
-        <p>Sign in to manage the local Arcadia catalog and operations.</p>
+        <h1>ADMIN ACCESS UNAVAILABLE</h1>
+        <p>Legacy local admin access is disabled. Use Supabase Auth for inventory administration.</p>
+        <div class="si-access-actions"><a class="primary-btn" href="#admin/inventory">OPEN INVENTORY ADMIN</a><a class="secondary-btn" href="#home">RETURN TO STORE</a></div>
       </div>
-      <form class="auth-form" id="adminLoginForm">
-        <label>Email<input name="email" type="email" autocomplete="username" required /></label>
-        <label>Password<input name="password" type="password" autocomplete="current-password" required /></label>
-        <button class="primary-btn" type="submit">OPEN DASHBOARD</button>
-        <p class="form-message" id="adminLoginMessage" role="alert"></p>
-      </form>
     </div>
   `;
-
-  enhancePasswordInputs(adminPage);
-
-  document.getElementById("adminLoginForm").addEventListener("submit", (event) => {
-    event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    const email = normalizeEmailAddress(formData.get("email"));
-    const password = String(formData.get("password") || "");
-    const message = document.getElementById("adminLoginMessage");
-
-    if (email !== LOCAL_ADMIN_CONFIG.email || password !== LOCAL_ADMIN_CONFIG.password) {
-      message.textContent = "Invalid admin credentials";
-      return;
-    }
-
-    sessionStorage.setItem(ADMIN_SESSION_KEY, "true");
-    renderAdminPage("overview");
-  });
 }
 
 function showAdminView(section = "overview") {
@@ -2300,6 +2288,18 @@ function showAdminView(section = "overview") {
   }
 }
 
+function showSupabaseInventoryView() {
+  resetPagePosition();
+  productDetailPage.classList.add("hidden");
+  wishlistPage.classList.add("hidden");
+  accountPage.classList.add("hidden");
+  checkoutPage.classList.add("hidden");
+  repairPage.classList.add("hidden");
+  adminPage.classList.remove("hidden");
+  homeMain.classList.add("hidden");
+  renderSupabaseInventory(adminPage);
+}
+
 function showRepairTrackingView() {
   resetPagePosition();
   productDetailPage.classList.add("hidden");
@@ -2315,6 +2315,10 @@ function handleHashRouting() {
   const hash = window.location.hash;
   const isHomeSection = HOME_SECTION_HASHES.includes(hash);
   if (!isHomeSection) resetPagePosition();
+  if (hash === "#admin/inventory") {
+    showSupabaseInventoryView();
+    return;
+  }
   if (hash.startsWith("#admin")) {
     showAdminView(hash.split("/")[1] || "overview");
     return;
@@ -2346,8 +2350,8 @@ function handleHashRouting() {
   }
 
   if (hash.startsWith("#product-")) {
-    const productId = Number(hash.replace("#product-", ""));
-    const product = products.find((item) => item.id === productId);
+    const productId = hash.replace("#product-", "");
+    const product = products.find((item) => String(item.id) === productId);
     if (product) {
       showDetailView();
       renderProductDetail(product);
@@ -2368,21 +2372,73 @@ function saveCartToStorage() {
   localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
 }
 
+async function syncSupabaseCartItem(item, remove = false) {
+  if (!supabaseAuthUser || !item?.variantId) return;
+  let query = supabase.from("carts").delete()
+    .eq("user_id", supabaseAuthUser.id)
+    .eq("product_id", item.id)
+    .eq("variant_id", item.variantId);
+  if (!remove) {
+    query = supabase.from("carts").upsert({
+      user_id: supabaseAuthUser.id,
+      product_id: item.id,
+      variant_id: item.variantId,
+      quantity: item.quantity
+    }, { onConflict: "user_id,product_id,variant_id" });
+  }
+  const { error } = await query;
+  if (error) console.warn("Could not sync this cart change to the account.", error.code || "");
+}
+
+async function loadAuthenticatedCart() {
+  if (!supabaseAuthUser) return;
+  const guestItems = [...cart];
+  const { data, error } = await supabase.from("carts")
+    .select("product_id,variant_id,quantity")
+    .eq("user_id", supabaseAuthUser.id)
+    .limit(100);
+  if (error) throw error;
+  const quantities = new Map();
+  for (const item of data || []) quantities.set(`${item.product_id}:${item.variant_id}`, Number(item.quantity) || 0);
+  for (const item of guestItems) {
+    const key = `${item.id}:${item.variantId}`;
+    quantities.set(key, (quantities.get(key) || 0) + Number(item.quantity || 0));
+  }
+  const merged = [];
+  for (const [key, quantity] of quantities) {
+    const [productId, variantId] = key.split(":");
+    const product = products.find((entry) => String(entry.id) === productId);
+    const variant = product?.variants.find((entry) => String(entry.id) === variantId);
+    if (!product || !variant || variant.stock <= 0) continue;
+    const item = { ...product, ...variant, id: product.id, name: product.name, brand: product.brand, variantId: variant.id, quantity: Math.min(variant.stock, Math.max(1, quantity)) };
+    merged.push(item);
+    await syncSupabaseCartItem(item);
+  }
+  cart = merged;
+  saveCartToStorage();
+  updateCart();
+}
+
 function loadCartFromStorage() {
   try {
     const savedCart = JSON.parse(localStorage.getItem(CART_STORAGE_KEY) || "[]");
-    cart = Array.isArray(savedCart) ? savedCart.map((item) => ({ ...item, variantId: item.variantId || `${item.id}-default` })) : [];
+    cart = Array.isArray(savedCart) ? savedCart.map((item) => {
+      const product = products.find((entry) => String(entry.id) === String(item.id));
+      const variant = product?.variants?.find((entry) => String(entry.id) === String(item.variantId));
+      if (!product || !variant || variant.stock <= 0) return null;
+      return { ...product, ...variant, id: product.id, name: product.name, brand: product.brand, variantId: variant.id, quantity: Math.max(1, Math.min(variant.stock, Math.floor(Number(item.quantity) || 1))) };
+    }).filter(Boolean) : [];
   } catch (error) {
     cart = [];
   }
 }
 
 function addToCart(productId, quantity = 1, variantId = null) {
-  const product = products.find((item) => item.id === productId);
+  const product = products.find((item) => String(item.id) === String(productId));
   const variant = product ? getProductVariant(product, variantId) : null;
   if (!product || !variant || variant.stock <= 0) return;
 
-  const existing = cart.find((item) => item.id === productId && item.variantId === variant.id);
+  const existing = cart.find((item) => String(item.id) === String(product.id) && String(item.variantId) === String(variant.id));
 
   if (existing) {
     existing.quantity = Math.min(variant.stock, existing.quantity + quantity);
@@ -2391,35 +2447,39 @@ function addToCart(productId, quantity = 1, variantId = null) {
   }
 
   saveCartToStorage();
+  void syncSupabaseCartItem(existing || cart[cart.length - 1]);
   updateCart();
   cartPanel.classList.add("open");
 }
 
 function changeQuantity(productId, change, variantId = null) {
-  const item = cart.find((entry) => entry.id === productId && entry.variantId === variantId);
+  const item = cart.find((entry) => String(entry.id) === String(productId) && String(entry.variantId) === String(variantId));
   if (!item) return;
 
-  const product = products.find((entry) => entry.id === productId);
+  const product = products.find((entry) => String(entry.id) === String(productId));
   if (!product) return;
 
   const variant = getProductVariant(product, item.variantId);
   item.quantity = Math.min(variant.stock, item.quantity + change);
 
   if (item.quantity <= 0) {
-    cart = cart.filter((entry) => !(entry.id === productId && entry.variantId === item.variantId));
+    cart = cart.filter((entry) => !(String(entry.id) === String(productId) && String(entry.variantId) === String(item.variantId)));
   }
 
   saveCartToStorage();
+  void syncSupabaseCartItem(item, item.quantity <= 0);
   updateCart();
 }
 
 function removeFromCart(productId, variantId = null) {
+  const removed = cart.filter((item) => String(item.id) === String(productId) && (!variantId || String(item.variantId) === String(variantId)));
   cart = cart.filter((item) => {
     if (String(item.id) !== String(productId)) return true;
     if (!variantId) return false;
     return String(item.variantId || `${item.id}-default`) !== String(variantId);
   });
   saveCartToStorage();
+  removed.forEach((item) => { void syncSupabaseCartItem(item, true); });
   updateCart();
 }
 
@@ -2467,7 +2527,7 @@ function updateCart() {
 
   document.querySelectorAll(".qty-adjust").forEach((button) => {
     button.addEventListener("click", () => {
-      const productId = Number(button.dataset.id);
+      const productId = button.dataset.id;
       const action = button.dataset.action;
       changeQuantity(productId, action === "increase" ? 1 : -1, button.dataset.variantId);
     });
@@ -2480,12 +2540,12 @@ function updateCart() {
   });
 }
 
-filterButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    selectedCategory = button.dataset.category;
-    filterButtons.forEach((btn) => btn.classList.toggle("active", btn === button));
-    renderProducts();
-  });
+categoryGrid?.addEventListener("click", (event) => {
+  const button = event.target.closest(".filter-btn");
+  if (!button) return;
+  selectedCategory = button.dataset.category;
+  categoryGrid.querySelectorAll(".filter-btn").forEach((entry) => entry.classList.toggle("active", entry === button));
+  renderProducts();
 });
 
 searchInput.addEventListener("input", (event) => {
@@ -2554,15 +2614,31 @@ function hideAppLoader() {
   }, 260);
 }
 
-function initializeApp() {
+async function initializeApp() {
   try {
-    loadCartFromStorage();
+    const catalog = await fetchStorefrontCatalog();
+    storefrontCategories = catalog.categories;
+    products = catalog.products;
+    storefrontLoadError = "";
+    renderCategoryFilters();
     loadWishlistFromStorage();
-    loadCustomerFromStorage();
+    const { data: authData } = await supabase.auth.getSession();
+    supabaseAuthUser = authData.session?.user || null;
+    if (supabaseAuthUser) {
+      const { data: profile } = await supabase.from("profiles").select("full_name,phone").eq("id", supabaseAuthUser.id).maybeSingle();
+      customer = {
+        fullName: profile?.full_name || supabaseAuthUser.user_metadata?.full_name || "",
+        email: supabaseAuthUser.email || "",
+        phone: profile?.phone || "Phone not added"
+      };
+      await refreshCustomerRecords();
+    } else {
+      customer = null;
+    }
+    loadCartFromStorage();
+    if (supabaseAuthUser) await loadAuthenticatedCart();
     enforceAuthorizedAdminAccess();
     syncAdminButtonState();
-    loadLocalAdminProducts();
-    normalizeProducts();
     renderDeals();
     renderProducts();
     renderBillboard();
@@ -2572,6 +2648,10 @@ function initializeApp() {
     handleHashRouting();
     if (!HOME_SECTION_HASHES.includes(window.location.hash)) window.setTimeout(resetPagePosition, 100);
   } catch (error) {
+    products = [];
+    storefrontLoadError = error?.message || "Supabase inventory is unavailable.";
+    renderCategoryFilters();
+    renderProducts();
     console.error("App initialization failed:", error);
   } finally {
     window.setTimeout(hideAppLoader, 180);
