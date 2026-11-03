@@ -1558,7 +1558,7 @@ function renderAccountPage() {
       supabaseAuthState.setSession(data.session, "SIGNED_IN");
       supabaseAuthUser = data.user;
       await activateCustomerSession(data.user);
-      renderAccountPage();
+      window.location.hash = "home";
     } catch (error) {
       message.textContent = error.message || "Sign-in failed.";
     }
