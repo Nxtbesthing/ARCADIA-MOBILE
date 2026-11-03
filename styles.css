@@ -4007,6 +4007,88 @@ textarea {
   vertical-align: top;
 }
 
+.si-operation-card {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.si-operation-card > header,
+.si-operation-form {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.si-operation-card > header span,
+.si-operation-card p {
+  margin: 0;
+  color: var(--subtle);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.si-operation-card ul {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--subtle);
+  font-size: 0.86rem;
+  line-height: 1.6;
+}
+
+.si-operation-form {
+  align-items: end;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.si-operation-form label {
+  display: grid;
+  flex: 1 1 180px;
+  gap: 6px;
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.si-operation-form input,
+.si-operation-form select,
+.si-operation-form textarea {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+}
+
+.si-operation-form textarea {
+  min-height: 76px;
+  resize: vertical;
+}
+
+.si-operation-form .si-operation-check {
+  display: flex;
+  align-items: center;
+  flex: 0 1 200px;
+}
+
+.si-operation-form .si-operation-check input {
+  width: 18px;
+  min-height: 18px;
+}
+
+.si-operation-form .si-operation-wide {
+  flex-basis: 100%;
+}
+
 @media (max-width: 720px) {
   .si-header,
   .si-toolbar {
@@ -4027,6 +4109,16 @@ textarea {
   .si-form,
   .si-cascade-grid {
     grid-template-columns: 1fr;
+  }
+
+  .si-operation-card > header,
+  .si-operation-form {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .si-operation-form > * {
+    width: 100%;
   }
 
   .si-access {

@@ -1,4 +1,14 @@
-import { supabase } from './supabase.js'
+import { supabase, supabaseAuthState, supabaseConfiguration } from './supabase.js'
+import {
+  listAdminOrders,
+  listAdminRepairRequests,
+  ORDER_STATUSES,
+  PAYMENT_STATUSES,
+  REPAIR_STATUSES,
+  saveAdminInventoryItem,
+  updateAdminOrder,
+  updateAdminRepairRequest
+} from './admin-workflows.js'
 
 const PAGE_SIZE = 1000
 
@@ -100,6 +110,7 @@ function renderSignIn(container, message = '') {
       renderMessage(container, error.message || 'Sign-in failed.', true)
       return
     }
+    supabaseAuthState.setSession(result.session, 'SIGNED_IN')
     await authorizeAndRender(container, result.session)
   })
 }
@@ -126,24 +137,48 @@ async function authorizeAndRender(container, session) {
       </section>
     `)
     container.querySelector('[data-si-signout]').addEventListener('click', async () => {
-      await supabase.auth.signOut()
+      const { error: signOutError } = await supabase.auth.signOut()
+      if (signOutError) {
+        renderMessage(container, 'Sign-out failed. Please try again.', true)
+        return
+      }
+      supabaseAuthState.setSession(null, 'SIGNED_OUT')
       renderSignIn(container)
     })
     return
   }
 
   try {
-    const [categories, manufacturers, series, models, storageOptions, products, variants, images] = await Promise.all([
+    const [categories, manufacturers, series, models, storageOptions, colors, products, variants, images, ordersResult, repairsResult] = await Promise.all([
       readAll('categories', 'id,name,slug,active'),
       readAll('manufacturers', 'id,name'),
       readAll('manufacturer_series', 'id,manufacturer_id,name'),
       readAll('manufacturer_models', 'id,series_id,name'),
       readAll('model_storage_options', 'id,model_id,storage_label'),
+      readAll('model_storage_colors', 'storage_option_id,color_name'),
       readAll('products', 'id,manufacturer_model_id,category_id,name,description,active,created_at'),
       readAll('product_variants', 'id,product_id,manufacturer_model_id,model_storage_option_id,color_name,sku,stock_quantity,availability,condition,original_price,discount_percentage,discount_amount,final_price,warranty,battery_health'),
-      readAll('product_images', 'id,product_id,variant_id,storage_path,alt_text,sort_order,is_primary')
+      readAll('product_images', 'id,product_id,variant_id,storage_path,alt_text,sort_order,is_primary'),
+      listAdminOrders(supabase).then((data) => ({ data })).catch((error) => ({ error })),
+      listAdminRepairRequests(supabase).then((data) => ({ data })).catch((error) => ({ error }))
     ])
-    renderInventory(container, { categories, manufacturers, series, models, storageOptions, colors: [], products, variants, images, user: session.user })
+    renderInventory(container, {
+      categories,
+      manufacturers,
+      series,
+      models,
+      storageOptions,
+      colors,
+      products,
+      variants,
+      images,
+      orders: ordersResult.data?.orders || [],
+      orderItems: ordersResult.data?.items || [],
+      ordersError: ordersResult.error || null,
+      repairRequests: repairsResult.data || [],
+      repairsError: repairsResult.error || null,
+      user: session.user
+    })
   } catch (loadError) {
     renderShell(container, `
       <section class="si-access">
@@ -213,6 +248,35 @@ function renderInventory(container, state) {
       <td><button class="admin-action danger" type="button" data-si-delete-image="${escapeHtml(image.id)}">REMOVE</button></td>
     </tr>`
   }).join('') || '<tr><td colspan="5">No product images uploaded.</td></tr>'
+  const orderRows = state.orders.map((order) => {
+    const items = state.orderItems?.filter((item) => item.order_id === order.id) || []
+    return `<article class="si-operation-card">
+      <header><strong>${escapeHtml(order.order_number)}</strong><span>${escapeHtml(new Date(order.created_at).toLocaleString())}</span></header>
+      <p>${escapeHtml(order.customer_name)} · ${escapeHtml(order.customer_email)} · ${escapeHtml(order.customer_phone)}</p>
+      <p>${escapeHtml(order.delivery_method)}${order.delivery_method === 'delivery' ? ` · ${escapeHtml([order.delivery_address, order.delivery_city, order.delivery_state].filter(Boolean).join(', '))}` : ''}</p>
+      <ul>${items.map((item) => `<li>${escapeHtml(item.product_name)} ${item.variant_description ? `· ${escapeHtml(item.variant_description)}` : ''} · ${escapeHtml(item.sku)} × ${Number(item.quantity)} · ${formatCurrency(item.line_total)}</li>`).join('') || '<li>Order items unavailable.</li>'}</ul>
+      <p>Bank transfer · ${formatCurrency(order.grand_total)} · ${formatCurrency(order.subtotal)} subtotal · ${formatCurrency(order.delivery_fee)} delivery</p>
+      <form class="si-operation-form" data-si-order-update="${escapeHtml(order.id)}">
+        <label>Order status<select name="status">${ORDER_STATUSES.map((status) => `<option value="${status}" ${status === order.status ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}</select></label>
+        <label>Payment status<select name="paymentStatus">${PAYMENT_STATUSES.map((status) => `<option value="${status}" ${status === order.payment_status ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}</select></label>
+        <button class="secondary-btn" type="submit">SAVE ORDER STATUS</button>
+      </form>
+    </article>`
+  }).join('') || '<p class="si-help">No orders are available.</p>'
+  const repairRows = state.repairRequests.map((repair) => `<article class="si-operation-card">
+    <header><strong>${escapeHtml(repair.ticket_number)}</strong><span>${escapeHtml(repair.created_at ? new Date(repair.created_at).toLocaleString() : '')}</span></header>
+    <p>${escapeHtml(repair.customer_name)} · ${escapeHtml(repair.customer_email)} · ${escapeHtml(repair.customer_phone)}</p>
+    <p>${escapeHtml(repair.device)}${repair.device_details ? ` · ${escapeHtml(repair.device_details)}` : ''}</p>
+    <p><strong>${escapeHtml(repair.problem)}</strong>${repair.description ? `<br />${escapeHtml(repair.description)}` : ''}</p>
+    <p>Preferred date: ${escapeHtml(repair.preferred_date || 'Not specified')}</p>
+    <form class="si-operation-form" data-si-repair-update="${escapeHtml(repair.id)}">
+      <label>Status<select name="status">${REPAIR_STATUSES.map((status) => `<option value="${status}" ${status === repair.status ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}</select></label>
+      <label>Repair cost<input name="repairCost" type="number" min="0" step="0.01" value="${repair.repair_cost == null ? '' : Number(repair.repair_cost)}" /></label>
+      <label class="si-operation-check"><input name="contacted" type="checkbox" ${repair.contacted ? 'checked' : ''} /> Customer contacted</label>
+      <label class="si-operation-wide">Internal notes<textarea name="communicationNotes" rows="3">${escapeHtml(repair.communication_notes || '')}</textarea></label>
+      <button class="secondary-btn" type="submit">SAVE REPAIR UPDATE</button>
+    </form>
+  </article>`).join('') || '<p class="si-help">No repair requests are available.</p>'
 
   renderShell(container, `
     <div class="si-toolbar">
@@ -277,9 +341,19 @@ function renderInventory(container, state) {
       </form>
       <div class="admin-table-wrap"><table class="admin-table si-table"><thead><tr><th>Preview</th><th>Product / variant</th><th>Role</th><th>Order</th><th>Action</th></tr></thead><tbody>${imageRows}</tbody></table></div>
     </section>
+    <section class="si-section" aria-labelledby="si-orders-title">
+      <div class="si-section-heading"><h2 id="si-orders-title">Orders and bank transfers</h2><button class="secondary-btn" type="button" data-si-refresh>REFRESH</button></div>
+      <p class="si-message" data-si-operations-message role="status"></p>
+      ${state.ordersError ? `<p class="si-message si-error" role="alert">Order queue could not be loaded. ${escapeHtml(displayError(state.ordersError))}</p>` : orderRows}
+    </section>
+    <section class="si-section" aria-labelledby="si-repairs-title">
+      <div class="si-section-heading"><h2 id="si-repairs-title">Repair requests</h2><button class="secondary-btn" type="button" data-si-refresh>REFRESH</button></div>
+      ${state.repairsError ? `<p class="si-message si-error" role="alert">Repair queue could not be loaded. ${escapeHtml(displayError(state.repairsError))}</p>` : repairRows}
+    </section>
   `)
 
   bindInventory(container, state, { modelById, seriesById })
+  bindAdminOperations(container, state)
 }
 
 function bindInventory(container, state, lookups) {
@@ -496,23 +570,21 @@ function bindInventory(container, state, lookups) {
     const productValues = {
       name: String(data.get('name') || '').trim(),
       description: String(data.get('description') || '').trim() || null,
-      category_id: String(data.get('category_id') || ''),
-      manufacturer_model_id: modelId
+      categoryId: String(data.get('category_id') || '')
     }
     const variantValues = {
-      manufacturer_model_id: modelId,
-      model_storage_option_id: storageId,
-      color_name: selectedColor,
+      storageOptionId: storageId,
+      colorName: selectedColor,
       sku: String(data.get('sku') || '').trim(),
-      stock_quantity: stockQuantity,
+      stockQuantity,
       availability,
       condition: String(data.get('condition') || '').trim(),
-      original_price: originalPrice,
-      discount_percentage: discountPercentage,
+      originalPrice,
+      discountPercentage,
       warranty: String(data.get('warranty') || '').trim()
     }
 
-    if (!productValues.name || !productValues.category_id || !variantValues.sku || !variantValues.condition || !variantValues.warranty) {
+    if (!productValues.name || !productValues.categoryId || !variantValues.sku || !variantValues.condition || !variantValues.warranty) {
       renderMessage(container, 'Complete all required product and variant fields.', true)
       return
     }
@@ -525,31 +597,16 @@ function bindInventory(container, state, lookups) {
         if (existingProduct && existingProduct.manufacturer_model_id !== modelId) {
           throw new Error('Manufacturer and model cannot be changed on an existing product; create a new product for a different model.')
         }
-        const { error: productError } = await supabase.from('products').update({
-          name: productValues.name,
-          description: productValues.description,
-          category_id: productValues.category_id
-        }).eq('id', productId)
-        if (productError) throw productError
-        const { error: variantError } = await supabase.from('product_variants').update(variantValues)
-          .eq('id', variantId)
-          .eq('product_id', productId)
-        if (variantError) throw variantError
-      } else {
-        const { data: newProduct, error: productError } = await supabase.from('products')
-          .insert(productValues)
-          .select('id')
-          .single()
-        if (productError) throw productError
-        const { error: variantError } = await supabase.from('product_variants').insert({
-          ...variantValues,
-          product_id: newProduct.id
-        })
-        if (variantError) {
-          await supabase.from('products').delete().eq('id', newProduct.id)
-          throw variantError
-        }
       }
+      await saveAdminInventoryItem(supabase, {
+        productId: productId || null,
+        variantId: variantId || null,
+        name: productValues.name,
+        description: productValues.description,
+        categoryId: productValues.categoryId,
+        modelId,
+        ...variantValues
+      })
       await authorizeAndRender(container, { user: state.user })
       renderMessage(container, productId ? 'Product and variant updated.' : 'Product and variant created.')
     } catch (error) {
@@ -559,7 +616,12 @@ function bindInventory(container, state, lookups) {
   })
 
   container.querySelector('[data-si-signout]').addEventListener('click', async () => {
-    await supabase.auth.signOut()
+    const { error: signOutError } = await supabase.auth.signOut()
+    if (signOutError) {
+      renderMessage(container, 'Sign-out failed. Please try again.', true)
+      return
+    }
+    supabaseAuthState.setSession(null, 'SIGNED_OUT')
     renderSignIn(container)
   })
   container.querySelector('[data-si-refresh]').addEventListener('click', () => authorizeAndRender(container, { user: state.user }))
@@ -601,16 +663,72 @@ function bindInventory(container, state, lookups) {
   container.querySelector('[data-si-cancel-edit]').addEventListener('click', () => authorizeAndRender(container, { user: state.user }))
 }
 
+function bindAdminOperations(container, state) {
+  container.querySelectorAll('[data-si-order-update]').forEach((form) => {
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault()
+      const orderId = form.dataset.siOrderUpdate
+      const button = form.querySelector('button[type="submit"]')
+      button.disabled = true
+      try {
+        const values = new FormData(form)
+        await updateAdminOrder(supabase, orderId, {
+          status: values.get('status'),
+          paymentStatus: values.get('paymentStatus')
+        })
+        await authorizeAndRender(container, { user: state.user })
+        const message = container.querySelector('[data-si-operations-message]')
+        if (message) message.textContent = 'Order status updated.'
+      } catch (error) {
+        button.disabled = false
+        const message = container.querySelector('[data-si-operations-message]')
+        if (message) {
+          message.textContent = displayError(error)
+          message.classList.add('si-error')
+        }
+      }
+    })
+  })
+
+  container.querySelectorAll('[data-si-repair-update]').forEach((form) => {
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault()
+      const repairId = form.dataset.siRepairUpdate
+      const button = form.querySelector('button[type="submit"]')
+      const values = new FormData(form)
+      button.disabled = true
+      try {
+        await updateAdminRepairRequest(supabase, repairId, {
+          status: values.get('status'),
+          contacted: values.has('contacted'),
+          repairCost: values.get('repairCost'),
+          communicationNotes: values.get('communicationNotes')
+        })
+        await authorizeAndRender(container, { user: state.user })
+        const message = container.querySelector('[data-si-operations-message]')
+        if (message) message.textContent = 'Repair request updated.'
+      } catch (error) {
+        button.disabled = false
+        const message = container.querySelector('[data-si-operations-message]')
+        if (message) {
+          message.textContent = displayError(error)
+          message.classList.add('si-error')
+        }
+      }
+    })
+  })
+}
+
 function productByIdSafe(products, id) {
   return products.find((product) => String(product.id) === String(id))
 }
 
 export async function renderSupabaseInventory(container) {
-  renderSignIn(container)
-  const { data, error } = await supabase.auth.getSession()
-  if (error) {
-    renderSignIn(container, displayError(error))
+  if (!supabaseConfiguration.configured || !supabase) {
+    renderSignIn(container, supabaseConfiguration.message)
     return
   }
-  if (data.session) await authorizeAndRender(container, data.session)
+  renderSignIn(container)
+  const session = supabaseAuthState.getSession()
+  if (session) await authorizeAndRender(container, session)
 }

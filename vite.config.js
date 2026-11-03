@@ -1,6 +1,9 @@
-import { defineConfig } from 'vite';
+import { loadEnv, defineConfig } from 'vite'
+import { assertSafeSupabaseBuildConfig } from './src/supabase-config.js'
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  assertSafeSupabaseBuildConfig(loadEnv(mode, process.cwd(), 'VITE_'))
+  return {
   server: {
     host: '0.0.0.0',
     port: 5173
@@ -13,4 +16,5 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false
   }
-});
+  }
+})

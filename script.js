@@ -1,6 +1,12 @@
-import { supabase } from './src/supabase.js'
+import { supabase, supabaseAuthState, supabaseConfiguration } from './src/supabase.js'
 import { renderSupabaseInventory } from './src/admin-inventory.js'
 import { fetchStorefrontCatalog } from './src/storefront-data.js'
+import { restoreAuthSession } from './src/auth-state.js'
+import { canCheckoutCart, canPurchaseVariant, resolveCatalogDisplay } from './src/catalog-state.js'
+import { loadAndMergeAuthenticatedCart, syncAuthenticatedCartItem } from './src/cart-sync.js'
+import { placeArcadiaOrder } from './src/orders.js'
+import { repairStatusErrorMessage, submitRepairRequest } from './src/repair-requests.js'
+import { normalizePricing } from './src/storefront-pricing.js'
 import { getIphoneColors, iphoneCatalog, iphoneModels, isValidIphoneVariant } from "./src/iphone-catalog.js";
 import { getSamsungColors, samsungCatalog, samsungModels, isValidSamsungVariant } from "./src/samsung-catalog.js";
 import { getRedmiColors, redmiCatalog, redmiModels, isValidRedmiVariant } from "./src/redmi-catalog.js";
@@ -260,10 +266,7 @@ const structuredCatalogs = {
 const WARRANTY_OPTIONS = ["No Warranty", ...Array.from({ length: 12 }, (_, index) => `${index + 1} Month${index ? "s" : ""}`)];
 
 function calculatePricing(originalPrice, discountPercentage) {
-  const original = Math.max(0, Number(originalPrice) || 0);
-  const discount = Math.min(100, Math.max(0, Number(discountPercentage) || 0));
-  const discountAmount = Math.round(original * (discount / 100));
-  return { originalPrice: original, discountPercentage: discount, discountAmount, finalPrice: original - discountAmount };
+  return normalizePricing({ originalPrice, discountPercentage });
 }
 
 function getDiscountLabel(pricing) {
@@ -276,17 +279,7 @@ function renderPriceMarkup(pricing, prefix = "") {
 }
 
 function getPricingFromVariant(variant) {
-  const originalPrice = Number.isFinite(Number(variant.originalPrice))
-    ? Number(variant.originalPrice)
-    : Number(variant.oldPrice || variant.price) || 0;
-  const discountPercentage = Number.isFinite(Number(variant.discountPercentage))
-    ? Number(variant.discountPercentage)
-    : Number.isFinite(Number(variant.discount))
-      ? Number(variant.discount)
-      : Number.isFinite(Number(variant.discountPercentage))
-        ? Number(variant.discountPercentage)
-        : originalPrice > Number(variant.price) ? ((originalPrice - Number(variant.price)) / originalPrice) * 100 : 0;
-  return calculatePricing(originalPrice, discountPercentage);
+  return normalizePricing(variant);
 }
 
 function renderWarrantyOptions(selected = "No Warranty") {
@@ -309,6 +302,11 @@ let wishlist = [];
 let customer = null;
 let customerOrders = [];
 let customerRepairs = [];
+let supabaseAuthUser = null;
+let authStateUnsubscribe = null;
+let customerLoadedUserId = null;
+let customerActivation = null;
+let customerActivationUserId = null;
 let detailQuantity = 1;
 let selectedDetailVariantId = null;
 
@@ -399,7 +397,9 @@ function createLegacyVariant(product) {
     sku: product.sku || `${product.id}-DEFAULT`,
     warranty: product.warranty || "No Warranty",
     warrantyMonths: product.warrantyMonths || 0,
-    images: Array.isArray(product.images) ? product.images : []
+    images: Array.isArray(product.images) ? product.images : [],
+    catalogSource: product.catalogSource,
+    previewOnly: product.previewOnly
   };
 }
 
@@ -1263,7 +1263,7 @@ function renderProducts() {
     return;
   }
 
-  productGrid.innerHTML = items
+  productGrid.innerHTML = `${storefrontLoadError ? `<div class="product-empty" role="status">${escapeHtml(storefrontLoadError)}</div>` : ""}${items
     .map(
       (product) => `
         <article class="product-card" data-product-id="${escapeHtml(product.id)}" tabindex="0" role="button" aria-label="View ${escapeHtml(product.name)}">
@@ -1272,7 +1272,8 @@ function renderProducts() {
               ${isInWishlist(product.id) ? "♥" : "♡"}
             </button>
             ${createResponsiveImageMarkup(product.images[0], product.name, { width: 600, height: 420, loading: "lazy" })}
-            <span class="product-badge">${product.discount}% OFF</span>
+            ${product.discount > 0 ? `<span class="product-badge">${product.discount}% OFF</span>` : ""}
+            ${product.previewOnly ? '<span class="product-badge">PREVIEW</span>' : ""}
           </div>
 
           <div class="product-card-body">
@@ -1291,13 +1292,13 @@ function renderProducts() {
             </div>
             ${product.warranty && product.warranty !== "No Warranty" ? `<span class="product-warranty">${escapeHtml(product.warranty)} warranty</span>` : ""}
             <div class="product-actions">
-              <button class="add-btn" type="button" data-id="${product.id}" ${product.stock <= 0 ? "disabled" : ""}>${product.stock > 0 ? "ADD TO CART" : "OUT OF STOCK"}</button>
+              <button class="add-btn" type="button" data-id="${escapeHtml(product.id)}" ${product.stock <= 0 || product.previewOnly ? "disabled" : ""}>${product.previewOnly ? "PREVIEW ONLY" : product.stock > 0 ? "ADD TO CART" : "OUT OF STOCK"}</button>
             </div>
           </div>
         </article>
       `
     )
-    .join("");
+    .join("")}`;
 
   updateSeoSchema();
 
@@ -1383,7 +1384,7 @@ function loadCustomerFromStorage() {
 }
 
 async function refreshCustomerRecords() {
-  if (!supabaseAuthUser) {
+  if (!supabase || !supabaseAuthUser) {
     customerOrders = [];
     customerRepairs = [];
     return;
@@ -1396,6 +1397,37 @@ async function refreshCustomerRecords() {
   if (repairs.error) throw repairs.error;
   customerOrders = orders.data || [];
   customerRepairs = repairs.data || [];
+}
+
+async function activateCustomerSession(user) {
+  if (!supabase || !user?.id) return;
+  if (customerLoadedUserId === user.id) return;
+  if (customerActivationUserId === user.id && customerActivation) return customerActivation;
+
+  customerActivationUserId = user.id;
+  customerActivation = (async () => {
+    const { data: profile, error } = await supabase.from("profiles")
+      .select("full_name,phone")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (error) throw error;
+    customer = {
+      fullName: profile?.full_name || user.user_metadata?.full_name || user.email?.split("@")[0] || "",
+      email: user.email || "",
+      phone: profile?.phone || user.user_metadata?.phone || "Phone not added"
+    };
+    await refreshCustomerRecords();
+    await loadAuthenticatedCart();
+    customerLoadedUserId = user.id;
+    if (window.location.hash === "#account") renderAccountPage();
+  })();
+
+  try {
+    await customerActivation;
+  } finally {
+    customerActivation = null;
+    customerActivationUserId = null;
+  }
 }
 
 function renderAccountPage() {
@@ -1424,14 +1456,24 @@ function renderAccountPage() {
       const data = new FormData(event.currentTarget);
       const values = { full_name: String(data.get("fullName") || "").trim(), phone: String(data.get("phone") || "").trim() };
       const message = document.getElementById("profileMessage");
-      const { error } = await supabase.from("profiles").update(values).eq("id", supabaseAuthUser.id);
-      if (error) { message.textContent = error.message; return; }
-      customer = { ...customer, fullName: values.full_name, phone: values.phone };
-      message.textContent = "Profile updated.";
+      try {
+        const { error } = await supabase.from("profiles").update(values).eq("id", supabaseAuthUser.id);
+        if (error) throw error;
+        customer = { ...customer, fullName: values.full_name, phone: values.phone };
+        message.textContent = "Profile updated.";
+      } catch (error) {
+        message.textContent = error.message || "Profile could not be updated.";
+      }
     });
     document.getElementById("accountLogout").addEventListener("click", async () => {
-      await supabase.auth.signOut();
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        document.getElementById("profileMessage").textContent = error.message || "Sign-out failed.";
+        return;
+      }
+      supabaseAuthState.setSession(null, "SIGNED_OUT");
       supabaseAuthUser = null;
+      customerLoadedUserId = null;
       customer = null;
       customerOrders = [];
       customerRepairs = [];
@@ -1478,26 +1520,29 @@ function renderAccountPage() {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const message = document.getElementById("signupMessage");
+    if (!supabase) { message.textContent = supabaseConfiguration.message; return; }
     const validationError = validateCustomerFields({ name: formData.get("fullName"), phone: formData.get("phone"), email: formData.get("email") });
     if (validationError) { message.textContent = validationError; return; }
     const fullName = String(formData.get("fullName")).trim();
     const phone = String(formData.get("phone")).trim();
-    const { data, error } = await supabase.auth.signUp({
-      email: String(formData.get("email")).trim().toLowerCase(),
-      password: String(formData.get("password") || ""),
-      options: { data: { full_name: fullName, phone } }
-    });
-    if (error) { message.textContent = error.message; return; }
-    if (!data.session) {
-      message.textContent = "Check your email to confirm your account before signing in.";
-      return;
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: String(formData.get("email")).trim().toLowerCase(),
+        password: String(formData.get("password") || ""),
+        options: { data: { full_name: fullName, phone } }
+      });
+      if (error) throw error;
+      if (!data.session) {
+        message.textContent = "Check your email to confirm your account before signing in.";
+        return;
+      }
+      supabaseAuthState.setSession(data.session, "SIGNED_IN");
+      supabaseAuthUser = data.session.user;
+      await activateCustomerSession(data.user);
+      renderAccountPage();
+    } catch (error) {
+      message.textContent = error.message || "Account creation failed.";
     }
-    supabaseAuthUser = data.user;
-    await supabase.from("profiles").update({ full_name: fullName, phone }).eq("id", data.user.id);
-    customer = { fullName, email: data.user.email, phone };
-    await refreshCustomerRecords();
-    await loadAuthenticatedCart();
-    renderAccountPage();
   });
 
   document.getElementById("loginForm").addEventListener("submit", async (event) => {
@@ -1505,23 +1550,32 @@ function renderAccountPage() {
     const formData = new FormData(event.currentTarget);
     const email = String(formData.get("email")).trim().toLowerCase();
     const message = document.getElementById("loginMessage");
+    if (!supabase) { message.textContent = supabaseConfiguration.message; return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || String(formData.get("password")).length < 6) { message.textContent = "Enter a valid email and password."; return; }
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password: String(formData.get("password")) });
-    if (error) { message.textContent = error.message; return; }
-    supabaseAuthUser = data.user;
-    const { data: profile } = await supabase.from("profiles").select("full_name,phone").eq("id", data.user.id).maybeSingle();
-    customer = { fullName: profile?.full_name || data.user.user_metadata?.full_name || email.split("@")[0], email, phone: profile?.phone || "Phone not added" };
-    await refreshCustomerRecords();
-    await loadAuthenticatedCart();
-    renderAccountPage();
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password: String(formData.get("password")) });
+      if (error) throw error;
+      supabaseAuthState.setSession(data.session, "SIGNED_IN");
+      supabaseAuthUser = data.user;
+      await activateCustomerSession(data.user);
+      renderAccountPage();
+    } catch (error) {
+      message.textContent = error.message || "Sign-in failed.";
+    }
   });
 
   document.getElementById("forgotPassword").addEventListener("click", async () => {
     const email = String(document.querySelector("#loginForm [name='email']").value || "").trim().toLowerCase();
     const message = document.getElementById("loginMessage");
+    if (!supabase) { message.textContent = supabaseConfiguration.message; return; }
     if (!email) { message.textContent = "Enter your email address first."; return; }
-    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/#account` });
-    message.textContent = error ? error.message : "If an account exists for that email, password reset instructions will be sent.";
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/#account` });
+      if (error) throw error;
+      message.textContent = "If an account exists for that email, password reset instructions will be sent.";
+    } catch (error) {
+      message.textContent = error.message || "Password reset could not be requested.";
+    }
   });
 }
 
@@ -1645,7 +1699,18 @@ function renderRepairConfirmation(repair) {
 }
 
 function getRepairProgress(status) {
-  const normalizedStatus = status === "Pending" ? "Requested" : status;
+  const statusLabels = {
+    requested: "Requested",
+    received: "Received",
+    diagnosing: "Diagnosing",
+    awaiting_approval: "Awaiting Approval",
+    repairing: "Repairing",
+    testing: "Testing",
+    ready: "Ready",
+    completed: "Completed",
+    cancelled: "Cancelled"
+  };
+  const normalizedStatus = statusLabels[String(status || "").toLowerCase()] || status;
   const progressIndex = {
     Requested: -1,
     Received: 0,
@@ -1715,8 +1780,9 @@ function renderRepairTracking(repair = null, errorMessage = "") {
       .maybeSingle()
       .then(({ data, error }) => {
         const repair = data ? { ...data, repairId: data.ticket_number } : null;
-        renderRepairTracking(repair, error ? error.message : repair ? "" : "We could not find that repair number on your account.");
-      });
+        renderRepairTracking(repair, error ? repairStatusErrorMessage() : repair ? "" : "We could not find that repair number on your account.");
+      })
+      .catch(() => renderRepairTracking(null, repairStatusErrorMessage()));
   });
 }
 
@@ -1768,22 +1834,18 @@ function renderRepairBooking() {
     const submitButton = event.currentTarget.querySelector("button[type='submit']");
     submitButton.disabled = true;
     try {
-      const payload = {
-        ticket_number: `REP-${new Date().getFullYear()}-${crypto.randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`,
-        user_id: supabaseAuthUser?.id || null,
-        customer_name: String(formData.get("name") || "").trim(),
-        customer_phone: String(formData.get("phone") || "").trim(),
-        customer_email: String(formData.get("email") || "").trim().toLowerCase(),
-        device: String(formData.get("device") || "").trim(),
-        device_details: String(formData.get("deviceDetails") || "").trim(),
-        problem: String(formData.get("problem") || "").trim(),
-        description: [String(formData.get("problemDetails") || "").trim(), String(formData.get("additionalInformation") || "").trim()].filter(Boolean).join("\n\n") || null,
-        preferred_date: String(formData.get("preferredDate") || "") || null
-      };
-      const { data, error } = await supabase.from("repair_requests").insert(payload).select("ticket_number,status,created_at").single();
-      if (error) throw error;
+      const request = await submitRepairRequest(supabase, {
+        customerName: formData.get("name"),
+        customerPhone: formData.get("phone"),
+        customerEmail: formData.get("email"),
+        device: formData.get("device"),
+        deviceDetails: formData.get("deviceDetails"),
+        problem: formData.get("problem"),
+        description: [String(formData.get("problemDetails") || "").trim(), String(formData.get("additionalInformation") || "").trim()].filter(Boolean).join("\n\n"),
+        preferredDate: formData.get("preferredDate")
+      });
       if (supabaseAuthUser) await refreshCustomerRecords();
-      renderRepairConfirmation({ repairId: data.ticket_number, status: data.status, createdAt: data.created_at });
+      renderRepairConfirmation({ repairId: request.ticket_number, status: request.status, createdAt: request.created_at });
     } catch (error) {
       submitButton.disabled = false;
       let message = repairPage.querySelector("[data-repair-submit-message]");
@@ -1910,6 +1972,10 @@ function renderCheckoutPage() {
       message.append(" ", link);
       return;
     }
+    if (!supabase || !canCheckoutCart(cart, products)) {
+      message.textContent = "Your cart contains products that are not available for purchase. Refresh the catalog and try again.";
+      return;
+    }
     if (String(formData.get("email") || "").trim().toLowerCase() !== String(supabaseAuthUser.email || "").toLowerCase()) {
       message.textContent = "Use the email address on your signed-in account for this order.";
       return;
@@ -1917,16 +1983,15 @@ function renderCheckoutPage() {
     submitButton.disabled = true;
     message.textContent = "";
     try {
-      const { data, error } = await supabase.rpc("place_arcadia_order", {
-        p_items: cart.map((item) => ({ variant_id: String(item.variantId), quantity: Number(item.quantity) })),
-        p_delivery_method: formData.get("fulfillment"),
-        p_delivery_state: formData.get("state") || null,
-        p_delivery_city: formData.get("city") || null,
-        p_delivery_address: formData.get("address") || null,
-        p_customer_name: String(formData.get("name") || "").trim(),
-        p_customer_phone: String(formData.get("phone") || "").trim()
+      const data = await placeArcadiaOrder(supabase, {
+        items: cart,
+        deliveryMethod: formData.get("fulfillment"),
+        deliveryState: formData.get("state"),
+        deliveryCity: formData.get("city"),
+        deliveryAddress: formData.get("address"),
+        customerName: String(formData.get("name") || "").trim(),
+        customerPhone: String(formData.get("phone") || "").trim()
       });
-      if (error) throw error;
       const order = {
         orderNumber: data.order_number,
         status: data.status,
@@ -1940,8 +2005,10 @@ function renderCheckoutPage() {
       updateCart();
       try {
         const catalog = await fetchStorefrontCatalog();
-        products = catalog.products;
-        storefrontCategories = catalog.categories;
+        const catalogView = resolveCatalogDisplay(catalog, fallbackProducts);
+        products = catalogView.products.map(normalizeProduct);
+        storefrontLoadError = catalogView.message;
+        storefrontCategories = catalogView.categories;
         renderCategoryFilters();
         renderProducts();
         renderDeals();
@@ -2021,6 +2088,7 @@ function openProductDetail(productId) {
 
 function renderProductDetail(product, variantId = selectedDetailVariantId) {
   const variant = getProductVariant(product, variantId);
+  const purchasable = canPurchaseVariant(product, variant);
   selectedDetailVariantId = variant.id;
   const variantImages = variant.images?.length ? variant.images : product.images || [];
   const variants = product.variants || [variant];
@@ -2062,7 +2130,7 @@ function renderProductDetail(product, variantId = selectedDetailVariantId) {
           </div>
 
           <div class="detail-stock-row">
-            <span class="detail-stock">${variant.stock > 0 ? `Stock: ${variant.stock}` : "OUT OF STOCK"}</span>
+            <span class="detail-stock">${product.previewOnly ? "PREVIEW ONLY · NOT AVAILABLE FOR PURCHASE" : variant.stock > 0 ? `Stock: ${variant.stock}` : "OUT OF STOCK"}</span>
             <span class="detail-condition">${escapeHtml(variant.condition)}</span>
           </div>
 
@@ -2098,8 +2166,8 @@ function renderProductDetail(product, variantId = selectedDetailVariantId) {
           </div>
 
           <div class="detail-actions">
-            <button class="primary-btn detail-primary" type="button" data-product-id="${product.id}" data-variant-id="${escapeHtml(variant.id)}" ${variant.stock <= 0 ? "disabled" : ""}>${variant.stock > 0 ? "ADD TO CART" : "OUT OF STOCK"}</button>
-            <button class="secondary-btn detail-secondary" type="button" data-product-id="${product.id}" data-variant-id="${escapeHtml(variant.id)}" ${variant.stock <= 0 ? "disabled" : ""}>BUY NOW</button>
+            <button class="primary-btn detail-primary" type="button" data-product-id="${escapeHtml(product.id)}" data-variant-id="${escapeHtml(variant.id)}" ${!purchasable || variant.stock <= 0 ? "disabled" : ""}>${product.previewOnly ? "PREVIEW ONLY" : variant.stock > 0 ? "ADD TO CART" : "OUT OF STOCK"}</button>
+            <button class="secondary-btn detail-secondary" type="button" data-product-id="${escapeHtml(product.id)}" data-variant-id="${escapeHtml(variant.id)}" ${!purchasable || variant.stock <= 0 ? "disabled" : ""}>BUY NOW</button>
           </div>
         </div>
       </div>
@@ -2373,48 +2441,17 @@ function saveCartToStorage() {
 }
 
 async function syncSupabaseCartItem(item, remove = false) {
-  if (!supabaseAuthUser || !item?.variantId) return;
-  let query = supabase.from("carts").delete()
-    .eq("user_id", supabaseAuthUser.id)
-    .eq("product_id", item.id)
-    .eq("variant_id", item.variantId);
-  if (!remove) {
-    query = supabase.from("carts").upsert({
-      user_id: supabaseAuthUser.id,
-      product_id: item.id,
-      variant_id: item.variantId,
-      quantity: item.quantity
-    }, { onConflict: "user_id,product_id,variant_id" });
+  if (!supabase || !supabaseAuthUser || !item?.variantId) return;
+  try {
+    await syncAuthenticatedCartItem(supabase, supabaseAuthUser.id, item, remove);
+  } catch (error) {
+    console.error("Could not sync this cart change to the account.", error.code || error.message || error);
   }
-  const { error } = await query;
-  if (error) console.warn("Could not sync this cart change to the account.", error.code || "");
 }
 
 async function loadAuthenticatedCart() {
-  if (!supabaseAuthUser) return;
-  const guestItems = [...cart];
-  const { data, error } = await supabase.from("carts")
-    .select("product_id,variant_id,quantity")
-    .eq("user_id", supabaseAuthUser.id)
-    .limit(100);
-  if (error) throw error;
-  const quantities = new Map();
-  for (const item of data || []) quantities.set(`${item.product_id}:${item.variant_id}`, Number(item.quantity) || 0);
-  for (const item of guestItems) {
-    const key = `${item.id}:${item.variantId}`;
-    quantities.set(key, (quantities.get(key) || 0) + Number(item.quantity || 0));
-  }
-  const merged = [];
-  for (const [key, quantity] of quantities) {
-    const [productId, variantId] = key.split(":");
-    const product = products.find((entry) => String(entry.id) === productId);
-    const variant = product?.variants.find((entry) => String(entry.id) === variantId);
-    if (!product || !variant || variant.stock <= 0) continue;
-    const item = { ...product, ...variant, id: product.id, name: product.name, brand: product.brand, variantId: variant.id, quantity: Math.min(variant.stock, Math.max(1, quantity)) };
-    merged.push(item);
-    await syncSupabaseCartItem(item);
-  }
-  cart = merged;
+  if (!supabase || !supabaseAuthUser) return;
+  cart = await loadAndMergeAuthenticatedCart(supabase, supabaseAuthUser.id, cart, products);
   saveCartToStorage();
   updateCart();
 }
@@ -2425,7 +2462,7 @@ function loadCartFromStorage() {
     cart = Array.isArray(savedCart) ? savedCart.map((item) => {
       const product = products.find((entry) => String(entry.id) === String(item.id));
       const variant = product?.variants?.find((entry) => String(entry.id) === String(item.variantId));
-      if (!product || !variant || variant.stock <= 0) return null;
+      if (!product || !variant || variant.stock <= 0 || !canPurchaseVariant(product, variant)) return null;
       return { ...product, ...variant, id: product.id, name: product.name, brand: product.brand, variantId: variant.id, quantity: Math.max(1, Math.min(variant.stock, Math.floor(Number(item.quantity) || 1))) };
     }).filter(Boolean) : [];
   } catch (error) {
@@ -2436,7 +2473,7 @@ function loadCartFromStorage() {
 function addToCart(productId, quantity = 1, variantId = null) {
   const product = products.find((item) => String(item.id) === String(productId));
   const variant = product ? getProductVariant(product, variantId) : null;
-  if (!product || !variant || variant.stock <= 0) return;
+  if (!product || !variant || variant.stock <= 0 || !canPurchaseVariant(product, variant)) return;
 
   const existing = cart.find((item) => String(item.id) === String(product.id) && String(item.variantId) === String(variant.id));
 
@@ -2617,26 +2654,47 @@ function hideAppLoader() {
 async function initializeApp() {
   try {
     const catalog = await fetchStorefrontCatalog();
-    storefrontCategories = catalog.categories;
-    products = catalog.products;
-    storefrontLoadError = "";
+    const catalogView = resolveCatalogDisplay(catalog, fallbackProducts);
+    storefrontCategories = catalogView.categories;
+    products = catalogView.products.map(normalizeProduct);
+    storefrontLoadError = catalogView.message;
     renderCategoryFilters();
     loadWishlistFromStorage();
-    const { data: authData } = await supabase.auth.getSession();
-    supabaseAuthUser = authData.session?.user || null;
-    if (supabaseAuthUser) {
-      const { data: profile } = await supabase.from("profiles").select("full_name,phone").eq("id", supabaseAuthUser.id).maybeSingle();
-      customer = {
-        fullName: profile?.full_name || supabaseAuthUser.user_metadata?.full_name || "",
-        email: supabaseAuthUser.email || "",
-        phone: profile?.phone || "Phone not added"
-      };
-      await refreshCustomerRecords();
+    loadCartFromStorage();
+    if (supabase) {
+      const restored = await restoreAuthSession(supabase);
+      if (!restored.restored) throw new Error("Your sign-in session could not be restored. Please sign in again.");
+      supabaseAuthUser = restored.session?.user || null;
+      supabaseAuthState.setSession(restored.session, "SESSION_RESTORED");
+      authStateUnsubscribe?.();
+      authStateUnsubscribe = supabaseAuthState.subscribe((event, session) => {
+        const nextUser = session?.user || null;
+        const changedUser = nextUser?.id !== supabaseAuthUser?.id;
+        supabaseAuthUser = nextUser;
+        if (!changedUser || event === "CURRENT_SESSION") return;
+        if (!nextUser) {
+          customerLoadedUserId = null;
+          customer = null;
+          customerOrders = [];
+          customerRepairs = [];
+          loadCartFromStorage();
+          updateCart();
+          if (window.location.hash === "#account") renderAccountPage();
+          return;
+        }
+        void activateCustomerSession(nextUser).catch((error) => {
+          console.error("Could not load the signed-in customer account.", error.code || error.message || error);
+        });
+      });
+      if (supabaseAuthUser) {
+        await activateCustomerSession(supabaseAuthUser);
+      } else {
+        customer = null;
+      }
     } else {
       customer = null;
+      supabaseAuthUser = null;
     }
-    loadCartFromStorage();
-    if (supabaseAuthUser) await loadAuthenticatedCart();
     enforceAuthorizedAdminAccess();
     syncAdminButtonState();
     renderDeals();
@@ -2648,11 +2706,18 @@ async function initializeApp() {
     handleHashRouting();
     if (!HOME_SECTION_HASHES.includes(window.location.hash)) window.setTimeout(resetPagePosition, 100);
   } catch (error) {
-    products = [];
-    storefrontLoadError = error?.message || "Supabase inventory is unavailable.";
-    renderCategoryFilters();
-    renderProducts();
+    storefrontLoadError = error?.message || "Arcadia Mobile could not finish loading account data.";
     console.error("App initialization failed:", error);
+    if (!products.length) products = fallbackProducts.map(normalizeProduct);
+    renderCategoryFilters();
+    loadCartFromStorage();
+    renderDeals();
+    renderProducts();
+    renderBillboard();
+    updateSeoSchema();
+    updateCart();
+    updateWishlistCount();
+    handleHashRouting();
   } finally {
     window.setTimeout(hideAppLoader, 180);
   }

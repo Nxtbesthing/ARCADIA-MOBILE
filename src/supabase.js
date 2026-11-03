@@ -1,21 +1,22 @@
 import { createClient } from '@supabase/supabase-js'
+import { createAuthState } from './auth-state.js'
+import { validateSupabaseConfig } from './supabase-config.js'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL
+const supabasePublicKey = import.meta.env?.VITE_SUPABASE_PUBLISHABLE_KEY ?? import.meta.env?.VITE_SUPABASE_ANON_KEY
+export const supabaseConfiguration = validateSupabaseConfig(supabaseUrl, supabasePublicKey)
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Supabase environment configuration is missing.')
-}
-
-if (!/^https:\/\/[^/]+\.supabase\.co$/.test(supabaseUrl)) {
-  throw new Error('VITE_SUPABASE_URL must be the Supabase project URL.')
-}
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+export const supabase = supabaseConfiguration.configured
+  ? createClient(supabaseUrl.trim(), supabasePublicKey.trim())
+  : null
+export const supabaseAuthState = createAuthState(supabase)
 
 export async function checkSupabaseConnection() {
-  const response = await fetch(`${supabaseUrl}/auth/v1/health`, {
-    headers: { apikey: supabaseAnonKey }
+  if (!supabaseConfiguration.configured) {
+    throw new Error(supabaseConfiguration.message)
+  }
+  const response = await fetch(`${supabaseUrl.trim()}/auth/v1/health`, {
+    headers: { apikey: supabasePublicKey.trim() }
   })
 
   if (!response.ok) {
