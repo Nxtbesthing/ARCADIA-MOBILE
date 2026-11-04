@@ -2362,7 +2362,7 @@ function renderAdminLogin() {
         <p class="eyebrow">ARCADIA ADMINISTRATION</p>
         <h1>ADMIN ACCESS UNAVAILABLE</h1>
         <p>Legacy local admin access is disabled. Use Supabase Auth for inventory administration.</p>
-        <div class="si-access-actions"><a class="primary-btn" href="#admin/inventory">OPEN INVENTORY ADMIN</a><a class="secondary-btn" href="#home">RETURN TO STORE</a></div>
+        <div class="si-access-actions"><a class="primary-btn" href="#admin/products">OPEN PRODUCT LISTING</a><a class="secondary-btn" href="#home">RETURN TO STORE</a></div>
       </div>
     </div>
   `;
@@ -2381,18 +2381,6 @@ function showAdminView(section = "overview") {
   renderSupabaseInventory(adminPage, section);
 }
 
-function showSupabaseInventoryView() {
-  resetPagePosition();
-  productDetailPage.classList.add("hidden");
-  wishlistPage.classList.add("hidden");
-  accountPage.classList.add("hidden");
-  checkoutPage.classList.add("hidden");
-  repairPage.classList.add("hidden");
-  adminPage.classList.remove("hidden");
-  homeMain.classList.add("hidden");
-  renderSupabaseInventory(adminPage, "products");
-}
-
 function showRepairTrackingView() {
   resetPagePosition();
   productDetailPage.classList.add("hidden");
@@ -2408,8 +2396,8 @@ function handleHashRouting() {
   const hash = window.location.hash;
   const isHomeSection = HOME_SECTION_HASHES.includes(hash);
   if (!isHomeSection) resetPagePosition();
-  if (hash === "#admin/inventory") {
-    showSupabaseInventoryView();
+  if (hash === "#admin/images" || hash === "#admin/inventory") {
+    window.location.hash = "#admin/products";
     return;
   }
   if (hash.startsWith("#admin")) {

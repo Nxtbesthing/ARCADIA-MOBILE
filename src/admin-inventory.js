@@ -5,12 +5,21 @@ import {
   ORDER_STATUSES,
   PAYMENT_STATUSES,
   REPAIR_STATUSES,
+  hasConfirmedAdminVariantImageReview,
+  loadAdminProductImages,
   manageAdminCatalogItem,
+  removeAdminProductImage,
+  reorderAdminProductImages,
+  requiresAdminVariantImageReview,
+  resolveAdminVariantAvailability,
+  saveAdminProductImages,
   saveAdminInventoryItem,
+  setAdminProductImagePrimary,
   setAdminProductActive,
   setAdminVariantActive,
   updateAdminOrder,
-  updateAdminRepairRequest
+  updateAdminRepairRequest,
+  validateAdminProductImages
 } from './admin-workflows.js'
 import {
   ANNOUNCEMENT_MEDIA_BUCKET,
@@ -66,8 +75,7 @@ const ADMIN_SECTIONS = [
   ['overview', 'Overview'],
   ['bill-board', 'Bill Board'],
   ['catalog', 'Catalog Management'],
-  ['products', 'Products & Inventory'],
-  ['images', 'Product Images'],
+  ['products', 'Product Listing'],
   ['orders', 'Orders & Transfers'],
   ['repairs', 'Repairs']
 ]
@@ -80,7 +88,7 @@ function renderShell(container, content, section = 'overview') {
           <p class="eyebrow">OPERATIONS CONSOLE</p>
           <h1>ARCADIA ADMIN</h1>
         </div>
-        <nav aria-label="Inventory navigation">
+        <nav aria-label="Admin navigation">
           <a class="secondary-btn" href="#admin">Admin dashboard</a>
           <a class="secondary-btn" href="#home">Storefront</a>
         </nav>
@@ -229,8 +237,6 @@ function renderInventory(container, state) {
   const categoryNotice = state.categories.length
     ? ''
     : '<p class="si-warning">No categories exist yet. Product creation is disabled because products require an existing category; no categories were seeded.</p>'
-  const imageNotice = '<p class="si-help">Product images are publicly readable; Storage uploads and deletes require an authenticated admin.</p>'
-  const productById = new Map(state.products.map((product) => [product.id, product]))
   const categoryById = new Map(state.categories.map((category) => [category.id, category]))
   const modelById = new Map(state.models.map((model) => [model.id, model]))
   const seriesById = new Map(state.series.map((series) => [series.id, series]))
@@ -238,7 +244,7 @@ function renderInventory(container, state) {
   const storageById = new Map(state.storageOptions.map((storage) => [storage.id, storage]))
   const imageCountByProduct = new Map()
   for (const image of state.images) imageCountByProduct.set(image.product_id, (imageCountByProduct.get(image.product_id) || 0) + 1)
-  const activeSection = state.section === 'inventory' ? 'products' : state.section
+  const activeSection = ['inventory', 'images'].includes(state.section) ? 'products' : state.section
   const announcementRows = state.announcements.map((announcement) => `
     <article class="si-operation-card">
       <header><strong>${escapeHtml(announcement.title)}</strong><span>${announcement.published ? 'Published' : 'Unpublished'}</span></header>
@@ -299,24 +305,12 @@ function renderInventory(container, state) {
         <td>${Number(variant.stock_quantity)}</td>
         <td>${escapeHtml(variant.condition)}</td>
         <td>${escapeHtml(variant.warranty)}</td>
-        <td>${escapeHtml(variant.availability)}</td>
+        <td>${variant.availability === 'hidden' ? 'Hidden' : variant.availability === 'out_of_stock' ? 'Out of Stock' : 'Active'}</td>
         <td>${imageCountByProduct.get(product.id) || 0} image(s)</td>
         <td><button class="admin-action" type="button" data-si-edit-product="${escapeHtml(product.id)}" data-si-edit-variant="${escapeHtml(variant.id)}">EDIT</button>${variant.availability === 'hidden' ? `<button class="admin-action" type="button" data-si-variant-active="${escapeHtml(variant.id)}" data-active="false">RESTORE VARIANT</button>` : `<button class="admin-action danger" type="button" data-si-variant-active="${escapeHtml(variant.id)}" data-active="true">REMOVE VARIANT</button>`}${index === 0 ? productActions : ''}</td>
       </tr>`
     })
   }).join('') || '<tr><td colspan="11">No Supabase inventory records yet.</td></tr>'
-  const imageRows = state.images.map((image) => {
-    const product = productById.get(image.product_id)
-    const imageUrl = supabase.storage.from('product-images').getPublicUrl(image.storage_path).data.publicUrl
-    const variant = state.variants.find((item) => item.id === image.variant_id)
-    return `<tr>
-      <td><img class="si-image-thumb" src="${escapeHtml(imageUrl)}" alt="${escapeHtml(image.alt_text || product?.name || 'Product image')}" /></td>
-      <td>${escapeHtml(product?.name || 'Unknown product')}<small>${variant ? `${escapeHtml(variant.sku)} · ${escapeHtml(variant.color_name)}` : 'Product image'}</small></td>
-      <td>${image.is_primary ? 'Primary' : 'Gallery'}</td>
-      <td>${Number(image.sort_order)}</td>
-      <td><button class="admin-action danger" type="button" data-si-delete-image="${escapeHtml(image.id)}">REMOVE</button></td>
-    </tr>`
-  }).join('') || '<tr><td colspan="5">No product images uploaded.</td></tr>'
   const orderRows = state.orders.map((order) => {
     const items = state.orderItems?.filter((item) => item.order_id === order.id) || []
     return `<article class="si-operation-card">
@@ -400,7 +394,7 @@ function renderInventory(container, state) {
     </section>
     ${categoryNotice}
     <section class="si-section" data-si-section="products" ${activeSection === 'products' ? '' : 'hidden'} aria-labelledby="si-product-title">
-      <h2 id="si-product-title">${categoryOptions ? 'Product and variant' : 'Inventory form unavailable'}</h2>
+      <h2 id="si-product-title">${categoryOptions ? 'Product Listing' : 'Inventory form unavailable'}</h2>
       <form class="si-form si-product-form" data-si-product-form>
         <input type="hidden" name="product_id" />
         <input type="hidden" name="variant_id" />
@@ -431,10 +425,10 @@ function renderInventory(container, state) {
             <label>Battery health (%)<input name="battery_health" type="number" min="0" max="100" step="1" /></label>
             <label>Original price (₦)<input name="original_price" type="number" min="0" step="0.01" value="0" required /></label>
             <label>Discount (%)<input name="discount_percentage" type="number" min="0" max="100" step="0.01" value="0" required /></label>
-            <label>Visibility when stocked<select name="visibility"><option value="active">Active</option><option value="hidden">Hidden</option></select></label>
+            <label>Storefront visibility<select name="visibility"><option value="active">Active (can show when out of stock)</option><option value="hidden">Hidden (excluded from storefront)</option></select></label>
             <div class="si-price-summary"><span>Discount amount <strong data-si-discount>₦ 0.00</strong></span><span>Final price <strong data-si-final>₦ 0.00</strong></span></div>
           </div>
-          <p class="si-help">Final price is generated by the database. Zero stock is always saved as out of stock.</p>
+          <p class="si-help">Final price is generated by the database. Active with zero stock is shown as Out of Stock; Hidden is a separate setting that excludes the listing from the storefront.</p>
           <div class="si-cascade-grid">
             <label>Face ID<input name="faceId" maxlength="200" /></label>
             <label>True Tone<input name="trueTone" maxlength="200" /></label>
@@ -448,24 +442,21 @@ function renderInventory(container, state) {
             <label class="si-wide">Variant notes<textarea name="notes" rows="3" maxlength="4000"></textarea></label>
           </div>
         </fieldset>
+        <fieldset class="si-catalog-fieldset si-product-images">
+          <legend>Product images</legend>
+          <p class="si-help">Add multiple JPEG, PNG, WebP, or AVIF images (maximum 10 MB each). Images are uploaded to the existing product-images bucket and linked to this variant.</p>
+          <label>Choose images<input name="product_images" data-si-product-images type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple /><span class="si-help" data-si-selected-image-names>No images selected</span></label>
+          <div class="si-pending-images" data-si-pending-images aria-live="polite"></div>
+          <h3>Saved images</h3>
+          <div class="si-warning si-image-variant-warning" data-si-image-variant-warning hidden>
+            Storage or colour is changing. Review the saved images below; they remain attached to this variant and may no longer represent it. You may keep them, remove them, or add replacements.
+            <label><input type="checkbox" data-si-confirm-image-variant-change /> I reviewed the images and confirm the change.</label>
+          </div>
+          <div class="si-existing-images" data-si-existing-images><p class="si-help">Choose an existing listing to manage its images.</p></div>
+        </fieldset>
         <p class="si-message" data-si-message role="status"></p>
-        <div class="si-form-actions"><button class="primary-btn" type="submit" ${categoryOptions ? '' : 'disabled'}>${categoryOptions ? 'CREATE PRODUCT + VARIANT' : 'CATEGORY REQUIRED'}</button><button class="secondary-btn" type="button" data-si-cancel-edit hidden>CANCEL</button></div>
+        <div class="si-form-actions"><button class="primary-btn" type="submit" ${categoryOptions ? '' : 'disabled'}>${categoryOptions ? 'SAVE PRODUCT LISTING' : 'CATEGORY REQUIRED'}</button><button class="secondary-btn" type="button" data-si-cancel-edit hidden>CANCEL</button></div>
       </form>
-    </section>
-    <section class="si-section" data-si-section="images" ${activeSection === 'images' ? '' : 'hidden'} aria-labelledby="si-images-title">
-      <h2 id="si-images-title">Product images</h2>
-      ${imageNotice}
-      <form class="si-form si-image-form" data-si-image-form>
-        <label>Product<select name="product_id" required><option value="">Select product</option>${state.products.map((product) => `<option value="${escapeHtml(product.id)}">${escapeHtml(product.name)}</option>`).join('')}</select></label>
-        <label>Variant (optional)<select name="variant_id"><option value="">Product image</option></select></label>
-        <label>Image file<input name="image" type="file" accept="image/jpeg,image/png,image/webp,image/avif" required /></label>
-        <label>Alt text<input name="alt_text" maxlength="240" /></label>
-        <label>Sort order<input name="sort_order" type="number" min="0" step="1" value="0" required /></label>
-        <label class="si-image-primary"><input name="is_primary" type="checkbox" /> Primary image for product</label>
-        <p class="si-message" data-si-image-message role="status"></p>
-        <div class="si-form-actions"><button class="primary-btn" type="submit" ${state.products.length ? '' : 'disabled'}>UPLOAD IMAGE</button></div>
-      </form>
-      <div class="admin-table-wrap"><table class="admin-table si-table"><thead><tr><th>Preview</th><th>Product / variant</th><th>Role</th><th>Order</th><th>Action</th></tr></thead><tbody>${imageRows}</tbody></table></div>
     </section>
     <section class="si-section" data-si-section="orders" ${activeSection === 'orders' ? '' : 'hidden'} aria-labelledby="si-orders-title">
       <div class="si-section-heading"><h2 id="si-orders-title">Orders and bank transfers</h2><button class="secondary-btn" type="button" data-si-refresh>REFRESH</button></div>
@@ -562,116 +553,224 @@ function bindInventory(container, state, lookups) {
   series.addEventListener('change', updateModels)
   model.addEventListener('change', updateStorage)
   storage.addEventListener('change', updateColors)
+  storage.addEventListener('change', updateVariantImageWarning)
+  color.addEventListener('change', updateVariantImageWarning)
   price.addEventListener('input', updatePrice)
   discount.addEventListener('input', updatePrice)
   stock.addEventListener('input', updateStockAvailability)
   updateSeries()
   updatePrice()
 
-  const imageForm = container.querySelector('[data-si-image-form]')
-  const imageProduct = imageForm.elements.product_id
-  const imageVariant = imageForm.elements.variant_id
-  const imageMessage = imageForm.querySelector('[data-si-image-message]')
-  const updateImageVariants = () => {
-    const options = state.variants.filter((item) => String(item.product_id) === imageProduct.value)
-    imageVariant.innerHTML = `<option value="">Product image</option>${options.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.sku)} · ${escapeHtml(item.color_name)}</option>`).join('')}`
+  const imageInput = form.elements.product_images
+  const pendingImageList = container.querySelector('[data-si-pending-images]')
+  const existingImageList = container.querySelector('[data-si-existing-images]')
+  const imageVariantWarning = container.querySelector('[data-si-image-variant-warning]')
+  const imageVariantConfirmation = container.querySelector('[data-si-confirm-image-variant-change]')
+  let pendingFiles = []
+  let pendingPrimaryIndex = null
+  let pendingUploadRecords = null
+  let pendingPreviewUrls = []
+  let editingVariant = null
+
+  const imageGroup = () => {
+    const productId = form.elements.product_id.value
+    const variantId = form.elements.variant_id.value
+    if (!productId) return []
+    return state.images
+      .filter((image) => String(image.product_id) === productId
+        && (!image.variant_id || String(image.variant_id) === variantId))
+      .sort((left, right) => Number(left.sort_order) - Number(right.sort_order))
   }
-  imageProduct.addEventListener('change', updateImageVariants)
-  imageForm.addEventListener('submit', async (event) => {
-    event.preventDefault()
-    const file = imageForm.elements.image.files?.[0]
-    const productId = imageProduct.value
-    const variantId = imageVariant.value || null
-    if (!productId || !state.products.some((item) => String(item.id) === productId)) {
-      imageMessage.textContent = 'Select a valid product.'
-      imageMessage.classList.add('si-error')
-      return
+  const renderPendingImages = () => {
+    pendingPreviewUrls.forEach((url) => URL.revokeObjectURL(url))
+    pendingPreviewUrls = []
+    container.querySelector('[data-si-selected-image-names]').textContent = pendingFiles.length
+      ? pendingFiles.map((file) => file.name).join(', ')
+      : 'No images selected'
+    pendingImageList.innerHTML = pendingFiles.map((file, index) => {
+      const url = URL.createObjectURL(file)
+      pendingPreviewUrls.push(url)
+      return `<article class="si-image-card">
+        <img src="${escapeHtml(url)}" alt="Preview of ${escapeHtml(file.name)}" />
+        <div><strong>${escapeHtml(file.name)}</strong><small>${(file.size / 1048576).toFixed(2)} MB</small></div>
+        <label class="si-image-primary"><input type="radio" name="pending_primary_image" value="${index}" ${pendingPrimaryIndex === index ? 'checked' : ''} /> Primary</label>
+        <div class="si-image-actions">
+          <button class="admin-action" type="button" data-si-pending-up="${index}" ${index === 0 ? 'disabled' : ''}>MOVE UP</button>
+          <button class="admin-action" type="button" data-si-pending-down="${index}" ${index === pendingFiles.length - 1 ? 'disabled' : ''}>MOVE DOWN</button>
+          <button class="admin-action danger" type="button" data-si-pending-remove="${index}">REMOVE</button>
+        </div>
+      </article>`
+    }).join('')
+  }
+  const renderExistingImages = () => {
+    const images = imageGroup()
+    existingImageList.innerHTML = images.map((image, index) => {
+      const imageUrl = supabase.storage.from('product-images').getPublicUrl(image.storage_path).data.publicUrl
+      return `<article class="si-image-card">
+        <img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(image.alt_text || 'Product image')}" />
+        <div><strong>${escapeHtml(image.alt_text || 'Product image')}</strong><small>${image.variant_id ? 'Variant image' : 'Product image'} · Order ${Number(image.sort_order)}</small></div>
+        <label class="si-image-primary"><input type="radio" name="saved_primary_image" value="${escapeHtml(image.id)}" ${image.is_primary ? 'checked' : ''} data-si-primary-image="${escapeHtml(image.id)}" /> Primary</label>
+        <div class="si-image-actions">
+          <button class="admin-action" type="button" data-si-image-up="${escapeHtml(image.id)}" ${index === 0 ? 'disabled' : ''}>MOVE UP</button>
+          <button class="admin-action" type="button" data-si-image-down="${escapeHtml(image.id)}" ${index === images.length - 1 ? 'disabled' : ''}>MOVE DOWN</button>
+          <button class="admin-action danger" type="button" data-si-remove-image="${escapeHtml(image.id)}">REMOVE</button>
+        </div>
+      </article>`
+    }).join('') || `<p class="si-help">${form.elements.product_id.value ? 'No saved images for this product variant yet.' : 'Save or select an existing listing to manage its images.'}</p>`
+  }
+  const setImageMessage = (message, isError = false) => {
+    renderMessage(container, message, isError)
+  }
+  const updateVariantImageWarning = () => {
+    const nextDetails = {
+      storageOptionId: storage.value,
+      colorName: color.value
     }
-    if (!file || file.size <= 0 || file.size > 10485760 || !['image/jpeg', 'image/png', 'image/webp', 'image/avif'].includes(file.type)) {
-      imageMessage.textContent = 'Choose a JPEG, PNG, WebP, or AVIF image no larger than 10 MB.'
-      imageMessage.classList.add('si-error')
-      return
-    }
-    if (variantId && !state.variants.some((item) => String(item.id) === variantId && String(item.product_id) === productId)) {
-      imageMessage.textContent = 'The selected variant does not belong to that product.'
-      imageMessage.classList.add('si-error')
-      return
-    }
-    const sortOrder = Number(imageForm.elements.sort_order.value)
-    if (!Number.isInteger(sortOrder) || sortOrder < 0) {
-      imageMessage.textContent = 'Sort order must be zero or greater.'
-      imageMessage.classList.add('si-error')
-      return
-    }
+    imageVariantWarning.hidden = !requiresAdminVariantImageReview(editingVariant, nextDetails, imageGroup())
+    if (!imageVariantWarning.hidden) imageVariantConfirmation.checked = false
+  }
+  const clearPendingImages = () => {
+    pendingFiles = []
+    pendingPrimaryIndex = null
+    pendingUploadRecords = null
+    imageInput.value = ''
+    renderPendingImages()
+  }
 
-    const button = imageForm.querySelector('button[type="submit"]')
-    button.disabled = true
-    imageMessage.classList.remove('si-error')
-    imageMessage.textContent = 'Uploading image…'
-    const safeName = file.name.normalize('NFKD').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(-100) || 'image'
-    const storagePath = `${productId}/${variantId || 'product'}/${crypto.randomUUID()}-${safeName}`
-    const previousPrimary = imageForm.elements.is_primary.checked
-      ? state.images.find((image) => String(image.product_id) === productId && image.is_primary)
-      : null
-    let uploaded = false
+  imageInput.addEventListener('change', () => {
+    pendingFiles = Array.from(imageInput.files || [])
+    pendingUploadRecords = null
     try {
-      if (previousPrimary) {
-        const { error: clearError } = await supabase.from('product_images').update({ is_primary: false }).eq('id', previousPrimary.id)
-        if (clearError) throw clearError
-      }
-      const { error: uploadError } = await supabase.storage.from('product-images').upload(storagePath, file, {
-        contentType: file.type,
-        cacheControl: '3600',
-        upsert: false
-      })
-      if (uploadError) throw uploadError
-      uploaded = true
-      const { error: metadataError } = await supabase.from('product_images').insert({
-        product_id: productId,
-        variant_id: variantId,
-        storage_path: storagePath,
-        alt_text: String(imageForm.elements.alt_text.value || '').trim() || null,
-        sort_order: sortOrder,
-        is_primary: imageForm.elements.is_primary.checked
-      })
-      if (metadataError) throw metadataError
-      await authorizeAndRender(container, { user: state.user }, state.section)
-      renderMessage(container, 'Image uploaded and metadata saved.')
+      validateAdminProductImages(pendingFiles)
+      const currentImages = imageGroup()
+      pendingPrimaryIndex = currentImages.some((image) => image.is_primary) || !pendingFiles.length ? null : 0
+      setImageMessage('')
     } catch (error) {
-      if (uploaded) await supabase.storage.from('product-images').remove([storagePath])
-      if (previousPrimary) await supabase.from('product_images').update({ is_primary: true }).eq('id', previousPrimary.id)
-      button.disabled = false
-      imageMessage.textContent = displayError(error)
-      imageMessage.classList.add('si-error')
+      pendingPrimaryIndex = null
+      setImageMessage(error.message, true)
+    }
+    renderPendingImages()
+  })
+  pendingImageList.addEventListener('change', (event) => {
+    if (event.target.name === 'pending_primary_image') {
+      pendingPrimaryIndex = Number(event.target.value)
+      pendingUploadRecords = null
     }
   })
-
-  container.querySelectorAll('[data-si-delete-image]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      const image = state.images.find((item) => String(item.id) === button.dataset.siDeleteImage)
-      if (!image || !window.confirm('Remove this product image?')) return
-      button.disabled = true
-      const imageMessage = container.querySelector('[data-si-image-message]')
-      try {
-        const { error: storageError } = await supabase.storage.from('product-images').remove([image.storage_path])
-        if (storageError) throw storageError
-        const { error: metadataError } = await supabase.from('product_images').delete().eq('id', image.id).eq('product_id', image.product_id)
-        if (metadataError) throw metadataError
-        await authorizeAndRender(container, { user: state.user }, state.section)
-      } catch (error) {
-        button.disabled = false
-        imageMessage.textContent = displayError(error)
-        imageMessage.classList.add('si-error')
-      }
-    })
+  pendingImageList.addEventListener('click', (event) => {
+    const button = event.target.closest('button')
+    if (!button) return
+    const removeIndex = Number(button.dataset.siPendingRemove)
+    const upIndex = Number(button.dataset.siPendingUp)
+    const downIndex = Number(button.dataset.siPendingDown)
+    if (button.hasAttribute('data-si-pending-remove')) {
+      pendingUploadRecords = null
+      pendingFiles.splice(removeIndex, 1)
+      if (pendingPrimaryIndex === removeIndex) pendingPrimaryIndex = null
+      else if (pendingPrimaryIndex > removeIndex) pendingPrimaryIndex -= 1
+      renderPendingImages()
+      return
+    }
+    const targetIndex = button.hasAttribute('data-si-pending-up') ? upIndex - 1 : downIndex + 1
+    if (Number.isInteger(targetIndex) && targetIndex >= 0 && targetIndex < pendingFiles.length) {
+      pendingUploadRecords = null
+      ;[pendingFiles[targetIndex], pendingFiles[button.hasAttribute('data-si-pending-up') ? upIndex : downIndex]] =
+        [pendingFiles[button.hasAttribute('data-si-pending-up') ? upIndex : downIndex], pendingFiles[targetIndex]]
+      if (pendingPrimaryIndex === targetIndex) pendingPrimaryIndex = button.hasAttribute('data-si-pending-up') ? upIndex : downIndex
+      else if (pendingPrimaryIndex === (button.hasAttribute('data-si-pending-up') ? upIndex : downIndex)) pendingPrimaryIndex = targetIndex
+      renderPendingImages()
+    }
   })
+  existingImageList.addEventListener('change', async (event) => {
+    const imageId = event.target.dataset.siPrimaryImage
+    if (!imageId) return
+    const image = state.images.find((entry) => String(entry.id) === imageId)
+    const previous = state.images.find((entry) => entry.product_id === image?.product_id && entry.is_primary)
+    pendingUploadRecords = null
+    pendingPrimaryIndex = null
+    event.target.disabled = true
+    try {
+      await setAdminProductImagePrimary(supabase, image, previous)
+      state.images.forEach((entry) => {
+        if (entry.product_id === image.product_id) entry.is_primary = entry.id === image.id
+      })
+      renderExistingImages()
+      setImageMessage('Primary image updated.')
+    } catch (error) {
+      renderExistingImages()
+      event.target.disabled = false
+      setImageMessage(displayError(error), true)
+    }
+  })
+  existingImageList.addEventListener('click', async (event) => {
+    const button = event.target.closest('button')
+    if (!button) return
+    const imageId = button.dataset.siRemoveImage || button.dataset.siImageUp || button.dataset.siImageDown
+    if (!imageId) return
+    const image = state.images.find((entry) => String(entry.id) === imageId)
+    if (!image) return
+    button.disabled = true
+    try {
+      if (button.hasAttribute('data-si-remove-image')) {
+        if (!window.confirm('Remove this product image? The saved file and image record will be removed.')) {
+          button.disabled = false
+          return
+        }
+        await removeAdminProductImage(supabase, image)
+        pendingUploadRecords = null
+        state.images = state.images.filter((entry) => entry.id !== image.id)
+        renderExistingImages()
+        setImageMessage('Image removed from the listing.')
+        return
+      }
+
+      const images = imageGroup()
+      const index = images.findIndex((entry) => entry.id === image.id)
+      const targetIndex = button.hasAttribute('data-si-image-up') ? index - 1 : index + 1
+      if (index < 0 || targetIndex < 0 || targetIndex >= images.length) return
+      ;[images[index], images[targetIndex]] = [images[targetIndex], images[index]]
+      const productId = form.elements.product_id.value
+      const variantId = form.elements.variant_id.value
+      await reorderAdminProductImages(supabase, productId, variantId, images)
+      images.forEach((entry, order) => { entry.sort_order = order })
+      renderExistingImages()
+      setImageMessage('Image order updated.')
+    } catch (error) {
+      let message = displayError(error)
+      if (button.hasAttribute('data-si-remove-image')
+        || button.hasAttribute('data-si-image-up')
+        || button.hasAttribute('data-si-image-down')) {
+        try {
+          const productId = form.elements.product_id.value
+          const refreshedImages = await loadAdminProductImages(supabase, productId)
+          state.images = [
+            ...state.images.filter((entry) => entry.product_id !== productId),
+            ...refreshedImages
+          ]
+          renderExistingImages()
+        } catch (refreshError) {
+          message = `${message} ${displayError(refreshError)}`
+        }
+      }
+      button.disabled = false
+      setImageMessage(message, true)
+    }
+  })
+  renderExistingImages()
+  renderPendingImages()
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault()
     if (!form.reportValidity()) return
+    try {
+      validateAdminProductImages(pendingFiles)
+    } catch (error) {
+      renderMessage(container, error.message, true)
+      return
+    }
     const data = new FormData(form)
-    const productId = String(data.get('product_id') || '')
-    const variantId = String(data.get('variant_id') || '')
+    let productId = String(data.get('product_id') || '')
+    let variantId = String(data.get('variant_id') || '')
     const operation = String(data.get('operation') || 'save')
     const modelId = model.value
     const storageId = storage.value
@@ -706,7 +805,7 @@ function bindInventory(container, state, lookups) {
     }
 
     const selectedVisibility = String(data.get('visibility'))
-    const availability = selectedVisibility === 'hidden' ? 'hidden' : stockQuantity === 0 ? 'out_of_stock' : 'active'
+    const availability = resolveAdminVariantAvailability(selectedVisibility, stockQuantity)
     const currentProduct = productId ? state.products.find((item) => String(item.id) === productId) : null
     const productValues = operation === 'add_variant' && currentProduct
       ? {
@@ -748,9 +847,18 @@ function bindInventory(container, state, lookups) {
       renderMessage(container, 'Complete all required product and variant fields.', true)
       return
     }
+    if (requiresAdminVariantImageReview(editingVariant, variantValues, imageGroup())) {
+      imageVariantWarning.hidden = false
+      if (!hasConfirmedAdminVariantImageReview(editingVariant, variantValues, imageGroup(), imageVariantConfirmation.checked)) {
+        renderMessage(container, 'Review the existing images and confirm the storage or colour change before saving.', true)
+        imageVariantWarning.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        return
+      }
+    }
 
     submit.disabled = true
     renderMessage(container, operation === 'add_variant' ? 'Adding variant…' : productId ? 'Saving inventory changes…' : 'Creating product and variant…')
+    let productSaved = false
     try {
       if (currentProduct && currentProduct.manufacturer_model_id !== modelId) {
         throw new Error('Manufacturer and model cannot be changed on an existing product; create a new product for a different model.')
@@ -764,7 +872,7 @@ function bindInventory(container, state, lookups) {
           throw new Error('Manufacturer and model cannot be changed on an existing product; create a new product for a different model.')
         }
       }
-      await saveAdminInventoryItem(supabase, {
+      const saved = await saveAdminInventoryItem(supabase, {
         productId: productId || null,
         variantId: variantId || null,
         name: productValues.name,
@@ -774,11 +882,44 @@ function bindInventory(container, state, lookups) {
         ...variantValues,
         ...productValues
       })
+      productId = saved.saved_product_id
+      variantId = saved.saved_variant_id
+      form.elements.product_id.value = productId
+      form.elements.variant_id.value = variantId
+      productSaved = true
+      if (pendingFiles.length) {
+        const existingImages = state.images.filter((image) => image.product_id === productId)
+        const existingPrimary = existingImages.find((image) => image.is_primary)
+        const primaryFileIndex = pendingPrimaryIndex === null && !existingPrimary ? 0 : pendingPrimaryIndex
+        const startingOrder = existingImages.length
+          ? Math.max(...existingImages.map((image) => Number(image.sort_order))) + 1
+          : 0
+        await saveAdminProductImages(supabase, {
+          productId,
+          variantId,
+          files: pendingFiles,
+          startingOrder,
+          primaryFileIndex,
+          existingPrimaryImageId: primaryFileIndex === null ? null : existingPrimary?.id || null,
+          retryRecords: pendingUploadRecords,
+          onProgress: (completed, total) => renderMessage(container, `Product saved. Uploading image ${completed} of ${total}…`)
+        })
+        pendingUploadRecords = null
+      }
+      const savedWithImages = pendingFiles.length > 0
+      clearPendingImages()
       await authorizeAndRender(container, { user: state.user }, state.section)
-      renderMessage(container, operation === 'add_variant' ? 'Variant added.' : productId ? 'Product and variant updated.' : 'Product and variant created.')
+      renderMessage(container, savedWithImages
+        ? 'Product listing and images saved successfully.'
+        : operation === 'add_variant'
+          ? 'Variant added.'
+          : 'Product listing saved successfully.')
     } catch (error) {
       submit.disabled = false
-      renderMessage(container, displayError(error), true)
+      pendingUploadRecords = error?.retryRecords || pendingUploadRecords
+      renderMessage(container, productSaved
+        ? `Product and inventory were saved, but image upload or association did not complete. Your form is preserved; retry to upload without creating another product. ${displayError(error)}`
+        : displayError(error), true)
     }
   })
 
@@ -799,6 +940,7 @@ function bindInventory(container, state, lookups) {
       const product = productByIdSafe(state.products, button.dataset.siEditProduct)
       const variant = state.variants.find((item) => String(item.id) === button.dataset.siEditVariant)
       if (!product || !variant) return
+      editingVariant = variant
       form.elements.product_id.value = product.id
       form.elements.variant_id.value = variant.id
       form.elements.operation.value = 'save'
@@ -836,7 +978,10 @@ function bindInventory(container, state, lookups) {
       form.elements.chargingDetails.value = variant.charging_details || ''
       form.elements.simDetails.value = variant.sim_details || ''
       form.elements.notes.value = variant.notes || ''
-      form.querySelector('button[type="submit"]').textContent = 'SAVE PRODUCT + VARIANT'
+      clearPendingImages()
+      renderExistingImages()
+      updateVariantImageWarning()
+      form.querySelector('button[type="submit"]').textContent = 'SAVE PRODUCT LISTING'
       container.querySelector('[data-si-cancel-edit]').hidden = false
       updatePrice()
       form.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -846,9 +991,11 @@ function bindInventory(container, state, lookups) {
     button.addEventListener('click', async () => {
       const product = productByIdSafe(state.products, button.dataset.siAddVariant)
       if (!product) return
+      editingVariant = null
       const productModel = lookups.modelById.get(product.manufacturer_model_id)
       const productSeries = productModel && lookups.seriesById.get(productModel.series_id)
       form.reset()
+      clearPendingImages()
       form.elements.product_id.value = product.id
       form.elements.variant_id.value = ''
       form.elements.operation.value = 'add_variant'
@@ -868,6 +1015,8 @@ function bindInventory(container, state, lookups) {
       form.elements.description.disabled = true
       form.elements.category_id.disabled = true
       await updateColors()
+      renderExistingImages()
+      updateVariantImageWarning()
       container.querySelector('[data-si-model-lock]').hidden = false
       submit.textContent = 'ADD VARIANT'
       container.querySelector('[data-si-cancel-edit]').hidden = false

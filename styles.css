@@ -3852,6 +3852,12 @@ textarea {
   color: #fff;
 }
 
+.supabase-inventory .admin-action.danger,
+.supabase-inventory .si-error,
+.supabase-inventory .si-success {
+  color: #111;
+}
+
 .si-metric-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -3915,6 +3921,21 @@ textarea {
   color: #333;
   font-size: 0.9rem;
   line-height: 1.5;
+}
+
+.si-image-variant-warning label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  color: #111;
+  font-weight: 650;
+}
+
+.si-image-variant-warning input {
+  flex: 0 0 auto;
+  margin: 3px 0 0;
+  accent-color: #111;
 }
 
 .si-access {
@@ -4009,6 +4030,73 @@ textarea {
   padding: 0 6px;
   font-size: 0.9rem;
   font-weight: 700;
+}
+
+.si-product-images h3 {
+  margin: 20px 0 10px;
+  font-size: 1rem;
+}
+
+.si-pending-images,
+.si-existing-images {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.si-image-card {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.si-image-card > img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 5px;
+  background: #f1f1f1;
+  object-fit: contain;
+}
+
+.si-image-card > div:not(.si-image-actions) {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.si-image-card small {
+  color: var(--subtle);
+}
+
+.si-product-images .si-image-primary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.si-product-images .si-image-primary input {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  accent-color: #111;
+}
+
+.si-image-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.si-image-actions .admin-action {
+  flex: 1 1 auto;
+  min-width: 75px;
 }
 
 .si-cascade-grid {

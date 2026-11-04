@@ -68,6 +68,22 @@ test('returns live state for products with valid variant and catalog mappings', 
   )
 })
 
+test('storefront places the selected primary image before other images within its variant', async () => {
+  const rows = {
+    ...liveRows,
+    product_images: [
+      { id: 'image-later', product_id: ids.product, variant_id: ids.variant, storage_path: 'later.jpg', sort_order: 0, is_primary: false },
+      { id: 'image-primary', product_id: ids.product, variant_id: ids.variant, storage_path: 'primary.jpg', sort_order: 4, is_primary: true },
+      { id: 'image-other-variant', product_id: ids.product, variant_id: 'other-variant', storage_path: 'other.jpg', sort_order: 0, is_primary: false }
+    ]
+  }
+  const result = await fetchStorefrontCatalog(createMockClient(rows), configured)
+  assert.deepEqual(result.products[0].variants[0].images, [
+    'https://images.example/primary.jpg',
+    'https://images.example/later.jpg'
+  ])
+})
+
 test('returns empty only after successful empty product reads', async () => {
   const result = await fetchStorefrontCatalog(createMockClient({ categories: liveRows.categories, products: [] }), configured)
   assert.equal(result.status, 'empty')

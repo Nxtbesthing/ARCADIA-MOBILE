@@ -69,11 +69,14 @@ export async function fetchStorefrontCatalog(client = supabase, configuration = 
     const imagesByProduct = new Map()
     const imagesByVariant = new Map()
     for (const image of images) {
-      const entry = imageUrlById.get(image.id)
       const target = image.variant_id ? imagesByVariant : imagesByProduct
       const targetId = image.variant_id || image.product_id
-      target.set(targetId, [...(target.get(targetId) || []), entry])
+      target.set(targetId, [...(target.get(targetId) || []), image])
     }
+    const imageUrlsInDisplayOrder = (entries) => [...entries]
+      .sort((left, right) => Number(right.is_primary) - Number(left.is_primary)
+        || Number(left.sort_order) - Number(right.sort_order))
+      .map((image) => imageUrlById.get(image.id))
 
     let incomplete = false
     const mappedProducts = products.flatMap((product) => {
@@ -122,7 +125,7 @@ export async function fetchStorefrontCatalog(client = supabase, configuration = 
             microphone: variant.microphone_details,
             charging: variant.charging_details,
             sim: variant.sim_details,
-            images: imagesByVariant.get(variant.id) || imagesByProduct.get(variant.product_id) || [],
+            images: imageUrlsInDisplayOrder(imagesByVariant.get(variant.id) || imagesByProduct.get(variant.product_id) || []),
             manufacturer: variantManufacturer.name
           }]
         })
@@ -133,7 +136,7 @@ export async function fetchStorefrontCatalog(client = supabase, configuration = 
       }
 
       const defaultVariant = productVariants.find((variant) => variant.stock > 0) || productVariants[0]
-      const productImages = imagesByProduct.get(product.id) || []
+      const productImages = imageUrlsInDisplayOrder(imagesByProduct.get(product.id) || [])
       return [{
         id: product.id,
         catalogSource: 'supabase',
