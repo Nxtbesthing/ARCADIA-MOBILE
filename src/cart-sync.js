@@ -1,4 +1,4 @@
-import { canPurchaseVariant } from './catalog-state.js'
+import { canPurchaseVariant, createPurchasableCartItem } from './catalog-state.js'
 
 function isPurchasableItem(item) {
   return Boolean(item?.variantId && canPurchaseVariant(item, {
@@ -56,15 +56,8 @@ export async function loadAndMergeAuthenticatedCart(client, userId, guestItems, 
     const variant = product?.variants?.find((entry) => String(entry.id) === variantId)
     const stock = Number(variant?.stock)
     if (!product || !variant || !Number.isFinite(stock) || stock <= 0 || !isPurchasableItem({ ...product, ...variant, variantId })) continue
-    const item = {
-      ...product,
-      ...variant,
-      id: product.id,
-      name: product.name,
-      brand: product.brand,
-      variantId: variant.id,
-      quantity: Math.min(stock, Math.max(1, Math.floor(quantity)))
-    }
+    const item = createPurchasableCartItem(product, variant, quantity)
+    if (!item) continue
     merged.push(item)
     await syncAuthenticatedCartItem(client, userId, item)
   }

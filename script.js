@@ -3,7 +3,7 @@ import { renderSupabaseInventory } from './src/admin-inventory.js'
 import { fetchStorefrontCatalog } from './src/storefront-data.js'
 import { listPublishedAnnouncements } from './src/announcements.js'
 import { restoreAuthSession } from './src/auth-state.js'
-import { canCheckoutCart, canPurchaseVariant, resolveCatalogDisplay } from './src/catalog-state.js'
+import { canCheckoutCart, canPurchaseVariant, createPurchasableCartItem, resolveCatalogDisplay } from './src/catalog-state.js'
 import { loadAndMergeAuthenticatedCart, syncAuthenticatedCartItem } from './src/cart-sync.js'
 import {
   loadArcadiaOrderItems,
@@ -2548,8 +2548,7 @@ function loadCartFromStorage() {
     cart = Array.isArray(savedCart) ? savedCart.map((item) => {
       const product = products.find((entry) => String(entry.id) === String(item.id));
       const variant = product?.variants?.find((entry) => String(entry.id) === String(item.variantId));
-      if (!product || !variant || variant.stock <= 0 || !canPurchaseVariant(product, variant)) return null;
-      return { ...product, ...variant, id: product.id, name: product.name, brand: product.brand, variantId: variant.id, quantity: Math.max(1, Math.min(variant.stock, Math.floor(Number(item.quantity) || 1))) };
+      return createPurchasableCartItem(product, variant, Number(item.quantity) || 1);
     }).filter(Boolean) : [];
   } catch (error) {
     cart = [];
@@ -2559,14 +2558,16 @@ function loadCartFromStorage() {
 function addToCart(productId, quantity = 1, variantId = null) {
   const product = products.find((item) => String(item.id) === String(productId));
   const variant = product ? getProductVariant(product, variantId) : null;
-  if (!product || !variant || variant.stock <= 0 || !canPurchaseVariant(product, variant)) return;
+  if (!product || !variant || !canPurchaseVariant(product, variant)) return;
 
   const existing = cart.find((item) => String(item.id) === String(product.id) && String(item.variantId) === String(variant.id));
 
   if (existing) {
     existing.quantity = Math.min(variant.stock, existing.quantity + quantity);
   } else {
-    cart.push({ ...product, ...variant, name: product.name, brand: product.brand, variantId: variant.id, quantity: Math.min(variant.stock, quantity) });
+    const item = createPurchasableCartItem(product, variant, quantity);
+    if (!item) return;
+    cart.push(item);
   }
 
   saveCartToStorage();

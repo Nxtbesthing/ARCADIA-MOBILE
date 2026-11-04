@@ -29,6 +29,25 @@ export function canPurchaseVariant(product, variant) {
   )
 }
 
+export function createPurchasableCartItem(product, variant, quantity) {
+  if (!canPurchaseVariant(product, variant)
+    || !product.variants?.some((entry) => String(entry.id) === String(variant.id))) return null
+
+  const stock = Number(variant.stock)
+  const requestedQuantity = Number(quantity)
+  if (!Number.isFinite(stock) || stock <= 0 || !Number.isFinite(requestedQuantity)) return null
+
+  return {
+    ...product,
+    ...variant,
+    id: product.id,
+    name: product.name,
+    brand: product.brand,
+    variantId: variant.id,
+    quantity: Math.min(stock, Math.max(1, Math.floor(requestedQuantity)))
+  }
+}
+
 export function canCheckoutCart(cart, products) {
   return Array.isArray(cart)
     && cart.length > 0
