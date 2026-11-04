@@ -320,7 +320,7 @@ export async function setAdminVariantActive(client, variantId, active) {
 
 export async function listAdminOrders(client) {
   const { data: orders, error } = await client.from('orders')
-    .select('id,order_number,status,payment_status,payment_method,subtotal,discount_total,delivery_fee,grand_total,delivery_method,delivery_state,delivery_city,delivery_address,customer_name,customer_phone,customer_email,created_at')
+    .select('id,order_number,status,payment_status,payment_method,payment_proof_path,subtotal,discount_total,delivery_fee,grand_total,delivery_method,delivery_state,delivery_city,delivery_address,customer_name,customer_phone,customer_email,created_at')
     .order('created_at', { ascending: false })
     .limit(100)
   if (error) throw error
@@ -328,11 +328,19 @@ export async function listAdminOrders(client) {
   const orderIds = (orders || []).map((order) => order.id)
   if (!orderIds.length) return { orders: [], items: [] }
 
+  const withProofUrls = await Promise.all((orders || []).map(async (order) => {
+    if (!order.payment_proof_path) return order
+    const { data, error: proofError } = await client.storage.from('payment-proofs')
+      .createSignedUrl(order.payment_proof_path, 3600)
+    if (proofError || !data?.signedUrl) throw new Error('An order payment proof could not be loaded.')
+    return { ...order, payment_proof_url: data.signedUrl }
+  }))
+
   const { data: items, error: itemsError } = await client.from('order_items')
     .select('id,order_id,product_name,variant_description,sku,quantity,unit_price,discount_amount,final_unit_price,warranty,line_total')
     .in('order_id', orderIds)
   if (itemsError) throw itemsError
-  return { orders: orders || [], items: items || [] }
+  return { orders: withProofUrls, items: items || [] }
 }
 
 export async function updateAdminOrder(client, orderId, values) {

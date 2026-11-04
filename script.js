@@ -5,7 +5,12 @@ import { listPublishedAnnouncements } from './src/announcements.js'
 import { restoreAuthSession } from './src/auth-state.js'
 import { canCheckoutCart, canPurchaseVariant, resolveCatalogDisplay } from './src/catalog-state.js'
 import { loadAndMergeAuthenticatedCart, syncAuthenticatedCartItem } from './src/cart-sync.js'
-import { placeArcadiaOrder } from './src/orders.js'
+import {
+  loadArcadiaOrderItems,
+  placeArcadiaOrder,
+  sendArcadiaOrderNotification,
+  uploadArcadiaPaymentProof
+} from './src/orders.js'
 import { repairStatusErrorMessage, submitRepairRequest } from './src/repair-requests.js'
 import { normalizePricing } from './src/storefront-pricing.js'
 import { getIphoneColors, iphoneCatalog, iphoneModels, isValidIphoneVariant } from "./src/iphone-catalog.js";
@@ -1652,13 +1657,12 @@ function renderOrderConfirmation(order) {
   const receiptText = [
     "ARCADIA MOBILE RECEIPT",
     `Order: ${order.orderNumber}`,
+    ...order.items.map((item) => `${item.product_name} ${item.variant_description || ""} · ${item.sku} × ${item.quantity} · ${formatCurrency(item.line_total)}`),
     `Total: ${formatCurrency(order.total)}`,
-    "Payment: Bank transfer pending",
+    `Payment: ${order.paymentStatus === "pending" ? "Pending Payment" : order.paymentStatus}`,
     `Status: ${order.status}`,
     `Customer: ${order.customer.name}`
   ].join("\n");
-  const emailSubject = encodeURIComponent(`Arcadia Mobile receipt ${order.orderNumber}`);
-  const emailBody = encodeURIComponent(receiptText);
   const whatsappNumber = "2348020376702";
   const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(receiptText)}`;
 
@@ -1666,24 +1670,67 @@ function renderOrderConfirmation(order) {
     <div class="container confirmation-shell">
       <div class="confirmation-mark" aria-label="Order placed">✓</div>
       <p class="eyebrow">ORDER PLACED · PAYMENT PENDING</p>
-      <h1>TRANSFER INSTRUCTIONS</h1>
+      <h1>YOUR ARCADIA RECEIPT</h1>
       <div class="confirmation-details">
         <div><span>Order</span><strong>${escapeHtml(order.orderNumber)}</strong></div>
         <div><span>Total</span><strong>${formatCurrency(order.total)}</strong></div>
-        <div><span>Order status</span><strong class="status-badge">Pending</strong></div>
-        <div><span>Payment status</span><strong class="status-badge">Pending</strong></div>
+        <div><span>Order status</span><strong class="status-badge">${escapeHtml(order.status)}</strong></div>
+        <div><span>Payment status</span><strong class="status-badge">${order.paymentStatus === "pending" ? "Pending Payment" : escapeHtml(order.paymentStatus)}</strong></div>
+      </div>
+      ${order.itemsError ? `<p class="form-message" role="alert">${escapeHtml(order.itemsError)}</p>` : ""}
+      <div class="receipt-items">
+        <h2>Items</h2>
+        ${order.items.length ? `<ul>${order.items.map((item) => `<li><span><strong>${escapeHtml(item.product_name)}</strong><small>${escapeHtml(item.variant_description || "")} · ${escapeHtml(item.sku)} × ${Number(item.quantity)}</small></span><strong>${formatCurrency(item.line_total)}</strong></li>`).join("")}</ul>` : '<p>Order items are not available in this receipt.</p>'}
+        <div class="receipt-total"><span>Total due</span><strong>${formatCurrency(order.total)}</strong></div>
       </div>
       <p class="confirmation-note">Transfer the exact amount to either account. Your order remains pending until Arcadia verifies payment.</p>
       <div class="confirmation-details">
         <div><span>OPay</span><strong>8020376702 · Oliver Latnie</strong></div>
         <div><span>Moniepoint</span><strong>8020376702 · Oliver Buenyen</strong></div>
       </div>
+      <section class="receipt-proof" aria-labelledby="payment-proof-title">
+        <h2 id="payment-proof-title">Upload transfer screenshot</h2>
+        <p>Upload a JPEG, PNG, or WebP image up to 5 MB. Arcadia will review it; this does not automatically mark payment as received.</p>
+        ${order.proofUploaded ? '<p class="form-message" role="status">Payment proof uploaded and linked to this order.</p>' : `<form id="paymentProofForm"><label>Payment proof<input name="proof" type="file" accept="image/jpeg,image/png,image/webp" required /></label><button class="secondary-btn" type="submit">UPLOAD PAYMENT PROOF</button><p class="form-message" data-proof-message role="status"></p></form>`}
+      </section>
+      ${order.notificationError ? `<p class="form-message" data-order-email-message role="alert">${escapeHtml(order.notificationError)} Your order is saved and remains pending.</p><button class="secondary-btn" type="button" data-retry-order-email>RETRY EMAIL NOTIFICATION</button>` : '<p class="form-message" role="status">Order notification email sent to Arcadia.</p>'}
       <div class="confirmation-actions">
+        <a class="primary-btn" href="${whatsappUrl}" target="_blank" rel="noopener noreferrer">SEND ORDER VIA WHATSAPP</a>
         <a class="primary-btn" href="#account">VIEW MY ORDERS</a>
         <a class="secondary-btn" href="#products">CONTINUE SHOPPING</a>
       </div>
     </div>
   `;
+
+  document.getElementById("paymentProofForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector("button[type='submit']");
+    const message = form.querySelector("[data-proof-message]");
+    const file = new FormData(form).get("proof");
+    button.disabled = true;
+    message.textContent = "";
+    try {
+      await uploadArcadiaPaymentProof(supabase, supabaseAuthUser?.id, order.id, file);
+      renderOrderConfirmation({ ...order, proofUploaded: true });
+    } catch (error) {
+      message.textContent = error.message || "Payment proof could not be uploaded.";
+      button.disabled = false;
+    }
+  });
+
+  document.querySelector("[data-retry-order-email]")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await sendArcadiaOrderNotification(supabase, order.id);
+      renderOrderConfirmation({ ...order, notificationError: "" });
+    } catch (error) {
+      button.disabled = false;
+      const message = checkoutPage.querySelector('[data-order-email-message]');
+      if (message) message.textContent = `${error.message || "Order notification email could not be sent."} Your order is saved and remains pending.`;
+    }
+  });
 }
 
 function loadRepairsFromStorage() {
@@ -2004,8 +2051,10 @@ function renderCheckoutPage() {
       message.textContent = "Use the email address on your signed-in account for this order.";
       return;
     }
+    if (submitButton.disabled) return;
     submitButton.disabled = true;
     message.textContent = "";
+    let order = null;
     try {
       const data = await placeArcadiaOrder(supabase, {
         items: cart,
@@ -2016,14 +2065,28 @@ function renderCheckoutPage() {
         customerName: String(formData.get("name") || "").trim(),
         customerPhone: String(formData.get("phone") || "").trim()
       });
-      const order = {
+      order = {
+        id: data.id,
         orderNumber: data.order_number,
         status: data.status,
         paymentStatus: data.payment_status,
         paymentMethod: "Bank transfer",
         total: Number(data.grand_total),
-        customer: { name: String(formData.get("name") || "").trim(), email: supabaseAuthUser.email }
+        customer: { name: String(formData.get("name") || "").trim(), email: supabaseAuthUser.email },
+        items: [],
+        itemsError: "",
+        notificationError: ""
       };
+      try {
+        order.items = await loadArcadiaOrderItems(supabase, data.id);
+      } catch (itemsError) {
+        order.itemsError = itemsError.message;
+      }
+      try {
+        await sendArcadiaOrderNotification(supabase, data.id);
+      } catch (notificationError) {
+        order.notificationError = notificationError.message;
+      }
       cart = [];
       saveCartToStorage();
       updateCart();
@@ -2040,11 +2103,21 @@ function renderCheckoutPage() {
       } catch (refreshError) {
         console.warn("Order placed; storefront stock refresh will retry on next load.");
       }
-      await refreshCustomerRecords();
+      try {
+        await refreshCustomerRecords();
+      } catch (refreshError) {
+        order.itemsError ||= "The order was placed, but your account order list could not be refreshed.";
+      }
       renderOrderConfirmation(order);
     } catch (error) {
-      message.textContent = error.message || "The order could not be placed.";
-      submitButton.disabled = false;
+      if (order) {
+        order.itemsError ||= "The order was placed, but the receipt could not be fully loaded. Check My Orders for the saved order.";
+        order.notificationError ||= "Order notification status could not be confirmed.";
+        renderOrderConfirmation(order);
+      } else {
+        message.textContent = error.message || "The order could not be placed.";
+        submitButton.disabled = false;
+      }
     }
   });
 }

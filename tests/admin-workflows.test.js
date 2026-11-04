@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  listAdminOrders,
   listAdminRepairRequests,
   manageAdminCatalogItem,
   saveAdminInventoryItem,
@@ -121,6 +122,43 @@ test('order administration limits updates to authorized status columns and valid
   await updateAdminOrder(client, 'order-1', { status: 'confirmed', paymentStatus: 'awaiting_confirmation', total: 0 })
   assert.deepEqual(update, { status: 'confirmed', payment_status: 'awaiting_confirmation' })
   await assert.rejects(updateAdminOrder(client, 'order-1', { status: 'invalid', paymentStatus: 'pending' }), /valid order/)
+})
+
+test('admin order queue returns only signed links for private payment proofs', async () => {
+  const order = { id: 'order-1', payment_proof_path: 'user-1/order-1/proof.png' }
+  const client = {
+    from(table) {
+      if (table === 'orders') {
+        return {
+          select(columns) {
+            assert.match(columns, /payment_proof_path/)
+            return this
+          },
+          order() { return this },
+          async limit() { return { data: [order], error: null } }
+        }
+      }
+      assert.equal(table, 'order_items')
+      return {
+        select() { return this },
+        async in() { return { data: [], error: null } }
+      }
+    },
+    storage: {
+      from(bucket) {
+        assert.equal(bucket, 'payment-proofs')
+        return {
+          async createSignedUrl(path, expiresIn) {
+            assert.equal(path, order.payment_proof_path)
+            assert.equal(expiresIn, 3600)
+            return { data: { signedUrl: 'https://private.example/proof' }, error: null }
+          }
+        }
+      }
+    }
+  }
+  const result = await listAdminOrders(client)
+  assert.equal(result.orders[0].payment_proof_url, 'https://private.example/proof')
 })
 
 test('catalog management uses non-destructive save and rename actions', async () => {

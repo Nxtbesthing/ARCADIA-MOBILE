@@ -2783,6 +2783,68 @@ main {
   line-height: 1.7;
 }
 
+.receipt-items,
+.receipt-proof {
+  margin-top: 20px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: #fff;
+  text-align: left;
+}
+
+.receipt-items h2,
+.receipt-proof h2 {
+  margin: 0 0 14px;
+}
+
+.receipt-items ul {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.receipt-items li,
+.receipt-total {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.receipt-items li > span {
+  display: grid;
+  gap: 4px;
+}
+
+.receipt-items small,
+.receipt-proof p {
+  color: var(--subtle);
+}
+
+.receipt-total {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-weight: 800;
+}
+
+.receipt-proof form {
+  display: grid;
+  gap: 12px;
+}
+
+.si-payment-proof {
+  display: block;
+  width: min(100%, 240px);
+  max-height: 240px;
+  margin-bottom: 8px;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
 .confirmation-actions {
   display: flex;
   justify-content: center;

@@ -14,7 +14,7 @@ test('storefront wires secure auth, catalog provenance, persistent cart, checkou
     "import { supabase, supabaseAuthState, supabaseConfiguration }",
     "import { canCheckoutCart, canPurchaseVariant, resolveCatalogDisplay }",
     "import { loadAndMergeAuthenticatedCart, syncAuthenticatedCartItem }",
-    "import { placeArcadiaOrder }",
+    "import {\n  loadArcadiaOrderItems,\n  placeArcadiaOrder,\n  sendArcadiaOrderNotification,\n  uploadArcadiaPaymentProof\n}",
     "import { repairStatusErrorMessage, submitRepairRequest }",
     'placeArcadiaOrder(supabase',
     'submitRepairRequest(supabase',

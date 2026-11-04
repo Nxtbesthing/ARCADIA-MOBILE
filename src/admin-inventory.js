@@ -319,10 +319,12 @@ function renderInventory(container, state) {
       <p>${escapeHtml(order.delivery_method)}${order.delivery_method === 'delivery' ? ` · ${escapeHtml([order.delivery_address, order.delivery_city, order.delivery_state].filter(Boolean).join(', '))}` : ''}</p>
       <ul>${items.map((item) => `<li>${escapeHtml(item.product_name)} ${item.variant_description ? `· ${escapeHtml(item.variant_description)}` : ''} · ${escapeHtml(item.sku)} × ${Number(item.quantity)} · ${formatCurrency(item.line_total)}</li>`).join('') || '<li>Order items unavailable.</li>'}</ul>
       <p>${escapeHtml(order.payment_method || 'Payment method unavailable')} · ${formatCurrency(order.grand_total)} · ${formatCurrency(order.subtotal)} subtotal · ${formatCurrency(order.delivery_fee)} delivery</p>
+      <p>${order.payment_proof_url ? `<a href="${escapeHtml(order.payment_proof_url)}" target="_blank" rel="noopener noreferrer"><img class="si-payment-proof" src="${escapeHtml(order.payment_proof_url)}" alt="Payment proof for order ${escapeHtml(order.order_number)}" />VIEW PAYMENT PROOF</a>` : 'No payment proof uploaded.'}</p>
       <form class="si-operation-form" data-si-order-update="${escapeHtml(order.id)}">
         <label>Order status<select name="status">${ORDER_STATUSES.map((status) => `<option value="${status}" ${status === order.status ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}</select></label>
         <label>Payment status<select name="paymentStatus">${PAYMENT_STATUSES.map((status) => `<option value="${status}" ${status === order.payment_status ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}</select></label>
         <button class="secondary-btn" type="submit">SAVE ORDER STATUS</button>
+        ${order.payment_status === 'paid' ? '' : `<button class="admin-action" type="button" data-si-confirm-payment="${escapeHtml(order.id)}">CONFIRM PAYMENT</button>`}
       </form>
     </article>`
   }).join('') || '<p class="si-help">No orders are available.</p>'
@@ -1299,6 +1301,29 @@ function bindCatalogManagement(container, state) {
 }
 
 function bindAdminOperations(container, state) {
+  container.querySelectorAll('[data-si-confirm-payment]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const form = button.closest('[data-si-order-update]')
+      button.disabled = true
+      try {
+        await updateAdminOrder(supabase, button.dataset.siConfirmPayment, {
+          status: form.elements.status.value,
+          paymentStatus: 'paid'
+        })
+        await authorizeAndRender(container, { user: state.user }, state.section)
+        const message = container.querySelector('[data-si-operations-message]')
+        if (message) message.textContent = 'Payment marked as confirmed.'
+      } catch (error) {
+        button.disabled = false
+        const message = container.querySelector('[data-si-operations-message]')
+        if (message) {
+          message.textContent = displayError(error)
+          message.classList.add('si-error')
+        }
+      }
+    })
+  })
+
   container.querySelectorAll('[data-si-order-update]').forEach((form) => {
     form.addEventListener('submit', async (event) => {
       event.preventDefault()
