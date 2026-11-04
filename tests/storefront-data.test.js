@@ -15,7 +15,7 @@ const ids = {
 const liveRows = {
   categories: [{ id: ids.category, name: 'Phones', slug: 'phones', active: true }],
   products: [{ id: ids.product, manufacturer_model_id: ids.model, category_id: ids.category, name: 'Phone', description: '', active: true }],
-  product_variants: [{ id: ids.variant, product_id: ids.product, manufacturer_model_id: ids.model, model_storage_option_id: ids.storage, color_name: 'Black', sku: 'PHONE-BLK', stock_quantity: 3, availability: 'active', condition: 'New', original_price: 100, discount_percentage: 12.5, discount_amount: 12.5, final_price: 87.5, warranty: '12 Months', battery_health: null }],
+  product_variants: [{ id: ids.variant, product_id: ids.product, manufacturer_model_id: ids.model, model_storage_option_id: ids.storage, color_name: 'Black', sku: 'PHONE-BLK', stock_quantity: 3, availability: 'active', condition: 'New', original_price: 100, discount_percentage: 12.5, discount_amount: 12.5, final_price: 87.5, warranty: '12 Months', battery_health: 92, ram: '8GB', face_id: 'Working', true_tone: 'Working', display_details: 'Original display', battery_details: 'Healthy', camera_details: 'Working', speaker_details: 'Working', microphone_details: 'Working', charging_details: 'USB-C', sim_details: 'Dual SIM' }],
   product_images: [],
   manufacturer_models: [{ id: ids.model, series_id: ids.series, name: 'Model' }],
   model_storage_options: [{ id: ids.storage, model_id: ids.model, storage_label: '128GB' }],
@@ -62,6 +62,10 @@ test('returns live state for products with valid variant and catalog mappings', 
   assert.equal(result.products[0].previewOnly, false)
   assert.equal(result.products[0].variants[0].catalogSource, 'supabase')
   assert.equal(result.products[0].variants[0].id, ids.variant)
+  assert.deepEqual(
+    Object.fromEntries(['batteryHealth', 'ram', 'faceId', 'trueTone', 'display', 'battery', 'camera', 'speaker', 'microphone', 'charging', 'sim'].map((key) => [key, result.products[0].variants[0][key]])),
+    { batteryHealth: 92, ram: '8GB', faceId: 'Working', trueTone: 'Working', display: 'Original display', battery: 'Healthy', camera: 'Working', speaker: 'Working', microphone: 'Working', charging: 'USB-C', sim: 'Dual SIM' }
+  )
 })
 
 test('returns empty only after successful empty product reads', async () => {

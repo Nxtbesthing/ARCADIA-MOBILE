@@ -41,7 +41,7 @@ export async function fetchStorefrontCatalog(client = supabase, configuration = 
 
     const productIds = products.map((product) => product.id)
     const [variants, images] = await Promise.all([
-      readByIds(client, 'product_variants', 'id,product_id,manufacturer_model_id,model_storage_option_id,color_name,sku,stock_quantity,availability,condition,original_price,discount_percentage,discount_amount,final_price,warranty,battery_health', 'product_id', productIds, (query) => query.in('availability', ['active', 'out_of_stock'])),
+      readByIds(client, 'product_variants', 'id,product_id,manufacturer_model_id,model_storage_option_id,color_name,sku,stock_quantity,availability,condition,original_price,discount_percentage,discount_amount,final_price,warranty,battery_health,ram,face_id,true_tone,display_details,battery_details,camera_details,speaker_details,microphone_details,charging_details,sim_details', 'product_id', productIds, (query) => query.in('availability', ['active', 'out_of_stock'])),
       readByIds(client, 'product_images', 'id,product_id,variant_id,storage_path,alt_text,sort_order,is_primary', 'product_id', productIds, (query) => query.order('sort_order'))
     ])
 
@@ -112,6 +112,16 @@ export async function fetchStorefrontCatalog(client = supabase, configuration = 
             sku: variant.sku,
             warranty: variant.warranty,
             batteryHealth: variant.battery_health,
+            ram: variant.ram,
+            faceId: variant.face_id,
+            trueTone: variant.true_tone,
+            display: variant.display_details,
+            battery: variant.battery_details,
+            camera: variant.camera_details,
+            speaker: variant.speaker_details,
+            microphone: variant.microphone_details,
+            charging: variant.charging_details,
+            sim: variant.sim_details,
             images: imagesByVariant.get(variant.id) || imagesByProduct.get(variant.product_id) || [],
             manufacturer: variantManufacturer.name
           }]

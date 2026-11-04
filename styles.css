@@ -608,6 +608,45 @@ main {
   object-fit: cover;
 }
 
+.hero-billboard > .billboard-copy {
+  z-index: 1;
+}
+
+.billboard-control {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font: inherit;
+  font-size: 1.6rem;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.billboard-previous {
+  left: 18px;
+}
+
+.billboard-next {
+  right: 18px;
+}
+
+.billboard-counter {
+  position: absolute;
+  z-index: 2;
+  right: 18px;
+  bottom: 18px;
+  color: #fff;
+  font-size: 0.78rem;
+}
+
 .billboard-empty {
   display: grid;
   place-items: center;
@@ -3798,6 +3837,44 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.si-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.si-nav a.active {
+  border-color: #111;
+  background: #111;
+  color: #fff;
+}
+
+.si-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.si-metric-grid article {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.si-metric-grid strong {
+  font-size: 1.35rem;
+}
+
+.si-metric-grid span {
+  color: var(--subtle);
+  font-size: 0.85rem;
 }
 
 .si-toolbar {

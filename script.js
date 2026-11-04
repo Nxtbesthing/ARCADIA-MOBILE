@@ -1,6 +1,7 @@
 import { supabase, supabaseAuthState, supabaseConfiguration } from './src/supabase.js'
 import { renderSupabaseInventory } from './src/admin-inventory.js'
 import { fetchStorefrontCatalog } from './src/storefront-data.js'
+import { listPublishedAnnouncements } from './src/announcements.js'
 import { restoreAuthSession } from './src/auth-state.js'
 import { canCheckoutCart, canPurchaseVariant, resolveCatalogDisplay } from './src/catalog-state.js'
 import { loadAndMergeAuthenticatedCart, syncAuthenticatedCartItem } from './src/cart-sync.js'
@@ -315,7 +316,6 @@ const WISHLIST_STORAGE_KEY = "arcadia-wishlist";
 const CUSTOMER_STORAGE_KEY = "arcadia-customer";
 const PRODUCT_STORAGE_KEY = "arcadia-admin-products";
 const CATALOG_STORAGE_KEY = "arcadia-device-catalog";
-const BILLBOARD_STORAGE_KEY = "arcadia-billboard";
 
 const productStorage = {
   getProducts() {
@@ -346,35 +346,59 @@ const catalogStorage = {
   }
 };
 
-const billboardStorage = {
-  getBillboard() {
-    try {
-      const saved = JSON.parse(localStorage.getItem(BILLBOARD_STORAGE_KEY) || "null");
-      return saved && (saved.title || saved.message || saved.media) ? saved : { label: "", title: "", message: "", mediaType: "", media: "" };
-    } catch (error) {
-      return { label: "", title: "", message: "", mediaType: "", media: "" };
-    }
-  },
-  saveBillboard(billboard) {
-    localStorage.setItem(BILLBOARD_STORAGE_KEY, JSON.stringify(billboard));
-  }
-};
+let billboardRotationTimer = null;
 
-function renderBillboard() {
+async function renderBillboard() {
   const container = document.getElementById("heroBillboard");
   if (!container) return;
-  const billboard = billboardStorage.getBillboard();
-  const isEmpty = !billboard.title && !billboard.message && !billboard.media;
-  if (isEmpty) {
+  if (billboardRotationTimer) window.clearInterval(billboardRotationTimer);
+  const renderEmpty = (message = "Arcadia promotions will appear here.") => {
     container.innerHTML = `<div class="billboard-empty"><span class="billboard-megaphone" aria-hidden="true">📣</span><strong>ANNOUNCEMENTS</strong><p>Arcadia promotions will appear here.</p></div>`;
+    const text = container.querySelector(".billboard-empty p");
+    if (text) text.textContent = message;
+  }
+  if (!supabase) {
+    renderEmpty();
     return;
   }
-  const media = billboard.mediaType === "video" && billboard.media
-    ? `<video src="${billboard.media}" muted autoplay loop playsinline aria-label="${escapeHtml(billboard.title)}"></video>`
-    : billboard.media
-      ? `<img src="${billboard.media}" alt="${escapeHtml(billboard.title)}" />`
-      : "";
-  container.innerHTML = `${media}<div class="billboard-copy"><span>${escapeHtml(billboard.label || "ARCADIA MOBILE")}</span><strong>${escapeHtml(billboard.title)}</strong><p>${escapeHtml(billboard.message)}</p></div>`;
+  try {
+    const announcements = await listPublishedAnnouncements(supabase);
+    if (!announcements.length) {
+      renderEmpty();
+      return;
+    }
+    let activeIndex = 0;
+    const renderActive = () => {
+      const item = announcements[activeIndex];
+      const media = item.media_type === "video" && item.media_url
+        ? `<video src="${escapeHtml(item.media_url)}" muted autoplay loop playsinline aria-label="${escapeHtml(item.title)}"></video>`
+        : item.media_url
+          ? `<img src="${escapeHtml(item.media_url)}" alt="${escapeHtml(item.title)}" />`
+          : "";
+      const controls = announcements.length > 1
+        ? `<button class="billboard-control billboard-previous" type="button" aria-label="Previous announcement">‹</button><span class="billboard-counter" aria-live="polite">${activeIndex + 1} / ${announcements.length}</span><button class="billboard-control billboard-next" type="button" aria-label="Next announcement">›</button>`
+        : "";
+      container.innerHTML = `${media}<div class="billboard-copy"><span>${escapeHtml(item.label || "ARCADIA MOBILE")}</span><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.message)}</p></div>${controls}`;
+      container.querySelector(".billboard-previous")?.addEventListener("click", () => {
+        activeIndex = (activeIndex + announcements.length - 1) % announcements.length;
+        renderActive();
+      });
+      container.querySelector(".billboard-next")?.addEventListener("click", () => {
+        activeIndex = (activeIndex + 1) % announcements.length;
+        renderActive();
+      });
+    };
+    renderActive();
+    if (announcements.length > 1) {
+      billboardRotationTimer = window.setInterval(() => {
+        activeIndex = (activeIndex + 1) % announcements.length;
+        renderActive();
+      }, 7000);
+    }
+  } catch (error) {
+    console.error("Could not load published Arcadia announcements.", error.code || error.message || error);
+    renderEmpty("Announcements are temporarily unavailable.");
+  }
 }
 
 function createLegacyVariant(product) {
@@ -2149,10 +2173,15 @@ function renderProductDetail(product, variantId = selectedDetailVariantId) {
             <div><span>SKU</span><strong>${escapeHtml(variant.sku)}</strong></div>
             <div><span>Warranty</span><strong>${escapeHtml(variant.warranty)}</strong></div>
             ${variant.batteryHealth ? `<div><span>Battery health</span><strong>${escapeHtml(variant.batteryHealth)}</strong></div>` : ""}
+            ${variant.ram ? `<div><span>RAM</span><strong>${escapeHtml(variant.ram)}</strong></div>` : ""}
             ${variant.faceId ? `<div><span>Face ID</span><strong>${escapeHtml(variant.faceId)}</strong></div>` : ""}
             ${variant.trueTone ? `<div><span>True Tone</span><strong>${escapeHtml(variant.trueTone)}</strong></div>` : ""}
             ${variant.display ? `<div><span>Display</span><strong>${escapeHtml(variant.display)}</strong></div>` : ""}
+            ${variant.battery ? `<div><span>Battery</span><strong>${escapeHtml(variant.battery)}</strong></div>` : ""}
             ${variant.camera ? `<div><span>Camera</span><strong>${escapeHtml(variant.camera)}</strong></div>` : ""}
+            ${variant.speaker ? `<div><span>Speaker</span><strong>${escapeHtml(variant.speaker)}</strong></div>` : ""}
+            ${variant.microphone ? `<div><span>Microphone</span><strong>${escapeHtml(variant.microphone)}</strong></div>` : ""}
+            ${variant.charging ? `<div><span>Charging</span><strong>${escapeHtml(variant.charging)}</strong></div>` : ""}
             ${variant.sim ? `<div><span>SIM / network</span><strong>${escapeHtml(variant.sim)}</strong></div>` : ""}
           </div>
 
@@ -2349,11 +2378,7 @@ function showAdminView(section = "overview") {
   repairPage.classList.add("hidden");
   adminPage.classList.remove("hidden");
   homeMain.classList.add("hidden");
-  if (isLocalAdminAuthenticated()) {
-    renderAdminPage(section);
-  } else {
-    renderAdminLogin();
-  }
+  renderSupabaseInventory(adminPage, section);
 }
 
 function showSupabaseInventoryView() {
@@ -2365,7 +2390,7 @@ function showSupabaseInventoryView() {
   repairPage.classList.add("hidden");
   adminPage.classList.remove("hidden");
   homeMain.classList.add("hidden");
-  renderSupabaseInventory(adminPage);
+  renderSupabaseInventory(adminPage, "products");
 }
 
 function showRepairTrackingView() {
@@ -2699,7 +2724,7 @@ async function initializeApp() {
     syncAdminButtonState();
     renderDeals();
     renderProducts();
-    renderBillboard();
+    await renderBillboard();
     updateSeoSchema();
     updateCart();
     updateWishlistCount();
@@ -2713,7 +2738,7 @@ async function initializeApp() {
     loadCartFromStorage();
     renderDeals();
     renderProducts();
-    renderBillboard();
+    await renderBillboard();
     updateSeoSchema();
     updateCart();
     updateWishlistCount();
