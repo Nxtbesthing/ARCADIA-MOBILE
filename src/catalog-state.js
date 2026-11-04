@@ -39,11 +39,10 @@ export function canCheckoutCart(cart, products) {
     })
 }
 
-export function resolveCatalogDisplay(catalog, fallbackProducts) {
+export function resolveCatalogDisplay(catalog) {
   const sourceStatus = catalog?.status || 'error'
   const categories = Array.isArray(catalog?.categories) ? catalog.categories : []
   const liveProducts = Array.isArray(catalog?.products) ? catalog.products : []
-  const previewProducts = markCatalogProducts(fallbackProducts, 'preview')
 
   if ((sourceStatus === 'live' || sourceStatus === 'incomplete') && liveProducts.length) {
     return {
@@ -60,14 +59,12 @@ export function resolveCatalogDisplay(catalog, fallbackProducts) {
 
   if (sourceStatus === 'empty') {
     return {
-      status: previewProducts.length ? 'preview' : 'empty',
+      status: 'empty',
       sourceStatus,
-      displayMode: previewProducts.length ? 'preview' : 'empty',
-      products: previewProducts,
+      displayMode: 'empty',
+      products: [],
       categories,
-      message: previewProducts.length
-        ? 'No live products are available. Preview inventory is shown and cannot be purchased.'
-        : 'No live products are available yet.'
+      message: 'No live products are available yet.'
     }
   }
 
@@ -78,13 +75,11 @@ export function resolveCatalogDisplay(catalog, fallbackProducts) {
       : 'Live inventory could not be loaded.'
 
   return {
-    status: previewProducts.length ? 'preview' : sourceStatus,
+    status: sourceStatus,
     sourceStatus,
-    displayMode: previewProducts.length ? 'preview' : 'empty',
-    products: previewProducts,
+    displayMode: 'empty',
+    products: [],
     categories,
-    message: previewProducts.length
-      ? `${sourceMessage} Preview inventory is shown and cannot be purchased.`
-      : sourceMessage
+    message: sourceMessage
   }
 }

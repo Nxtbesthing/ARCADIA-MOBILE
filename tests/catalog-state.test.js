@@ -5,10 +5,9 @@ import { canCheckoutCart, canPurchaseVariant, isSupabaseUuid, resolveCatalogDisp
 const productId = 'c0a80101-0000-4000-8000-000000000001'
 const variantId = 'c0a80101-0000-4000-8000-000000000002'
 const liveProduct = { id: productId, variants: [{ id: variantId }] }
-const previewProduct = { id: 1, variants: [{ id: '1-default' }] }
 
 test('live catalogs keep Supabase products and preserve categories', () => {
-  const view = resolveCatalogDisplay({ status: 'live', products: [liveProduct], categories: [{ slug: 'phones' }] }, [previewProduct])
+  const view = resolveCatalogDisplay({ status: 'live', products: [liveProduct], categories: [{ slug: 'phones' }] })
   assert.equal(view.status, 'live')
   assert.equal(view.displayMode, 'live')
   assert.equal(view.products[0].previewOnly, false)
@@ -16,40 +15,42 @@ test('live catalogs keep Supabase products and preserve categories', () => {
   assert.equal(view.categories[0].slug, 'phones')
 })
 
-test('empty catalogs use clearly marked preview inventory', () => {
-  const view = resolveCatalogDisplay({ status: 'empty', products: [], categories: [] }, [previewProduct])
-  assert.equal(view.status, 'preview')
+test('empty catalogs show no products and preserve categories', () => {
+  const categories = [{ slug: 'phones' }]
+  const view = resolveCatalogDisplay({ status: 'empty', products: [], categories })
+  assert.equal(view.status, 'empty')
   assert.equal(view.sourceStatus, 'empty')
-  assert.equal(view.products[0].previewOnly, true)
-  assert.match(view.message, /cannot be purchased/i)
+  assert.equal(view.displayMode, 'empty')
+  assert.deepEqual(view.products, [])
+  assert.equal(view.categories[0].slug, 'phones')
+  assert.match(view.message, /no live products/i)
 })
 
-test('incomplete catalogs never get silently replaced by preview products', () => {
-  const view = resolveCatalogDisplay({ status: 'incomplete', products: [liveProduct], categories: [] }, [previewProduct])
+test('incomplete catalogs show valid live products and warn about incomplete data', () => {
+  const view = resolveCatalogDisplay({ status: 'incomplete', products: [liveProduct], categories: [] })
   assert.equal(view.displayMode, 'live')
   assert.equal(view.products[0].id, productId)
   assert.match(view.message, /incomplete/i)
 })
 
-test('incomplete, failed, and unconfigured catalogs use explicitly marked preview when no usable live products exist', () => {
+test('incomplete, failed, and unconfigured catalogs never show preview products', () => {
   for (const status of ['incomplete', 'error', 'unconfigured']) {
-    const view = resolveCatalogDisplay({ status, products: [], categories: [] }, [previewProduct])
-    assert.equal(view.status, 'preview')
+    const view = resolveCatalogDisplay({ status, products: [], categories: [] })
     assert.equal(view.sourceStatus, status)
-    assert.equal(view.products[0].previewOnly, true)
-    assert.match(view.message, /cannot be purchased/i)
+    assert.equal(view.displayMode, 'empty')
+    assert.deepEqual(view.products, [])
+    assert.ok(view.message.length > 0)
   }
 })
 
 test('purchase eligibility requires live provenance and UUID-backed product and variant IDs', () => {
-  const live = resolveCatalogDisplay({ status: 'live', products: [liveProduct], categories: [] }, []).products[0]
-  const local = resolveCatalogDisplay({ status: 'empty', products: [], categories: [] }, [previewProduct]).products[0]
+  const live = resolveCatalogDisplay({ status: 'live', products: [liveProduct], categories: [] }).products[0]
   assert.equal(isSupabaseUuid(variantId), true)
   assert.equal(isSupabaseUuid('1-default'), false)
   assert.equal(canPurchaseVariant(live, live.variants[0]), true)
-  assert.equal(canPurchaseVariant(local, local.variants[0]), false)
   assert.equal(canPurchaseVariant({ ...live, id: 'not-a-uuid' }, live.variants[0]), false)
+  assert.equal(canPurchaseVariant({ ...live, previewOnly: true }, live.variants[0]), false)
   assert.equal(canCheckoutCart([{ id: live.id, variantId: live.variants[0].id }], [live]), true)
-  assert.equal(canCheckoutCart([{ id: local.id, variantId: local.variants[0].id }], [local]), false)
+  assert.equal(canCheckoutCart([{ id: '1', variantId: '1-default' }], [live]), false)
   assert.equal(canCheckoutCart([], [live]), false)
 })

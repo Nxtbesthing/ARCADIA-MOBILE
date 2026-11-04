@@ -2029,7 +2029,7 @@ function renderCheckoutPage() {
       updateCart();
       try {
         const catalog = await fetchStorefrontCatalog();
-        const catalogView = resolveCatalogDisplay(catalog, fallbackProducts);
+        const catalogView = resolveCatalogDisplay(catalog);
         products = catalogView.products.map(normalizeProduct);
         storefrontLoadError = catalogView.message;
         storefrontCategories = catalogView.categories;
