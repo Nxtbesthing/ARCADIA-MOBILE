@@ -49,6 +49,22 @@ test('Product Listing consolidates image management and safely redirects old rou
   assert.match(app, /OPEN PRODUCT LISTING/)
 })
 
+test('Product Listing renders inventory rows with refresh, edit, and active-state actions', () => {
+  assert.match(admin, /<tbody>\$\{inventoryRows\}<\/tbody>/)
+  assert.match(admin, /data-si-refresh>REFRESH INVENTORY/)
+  for (const column of ['Variant', 'SKU', 'Price / discount', 'Stock', 'Condition', 'Warranty', 'Visibility', 'Images', 'Actions']) {
+    assert.ok(admin.includes(`<th>${column}</th>`), `Expected inventory column: ${column}`)
+  }
+  assert.match(admin, /data-si-edit-product="\$\{escapeHtml\(product\.id\)\}" data-si-edit-variant="\$\{escapeHtml\(variant\.id\)\}"/)
+  assert.match(admin, /data-si-product-active="\$\{escapeHtml\(product\.id\)\}"/)
+  assert.match(admin, /data-si-variant-active="\$\{escapeHtml\(variant\.id\)\}"/)
+  assert.match(admin, /form\.elements\.product_id\.value = product\.id/)
+  assert.match(admin, /form\.elements\.variant_id\.value = variant\.id/)
+  assert.match(admin, /form\.elements\.name\.value = product\.name/)
+  assert.match(admin, /price\.value = variant\.original_price/)
+  assert.match(admin, /stock\.value = variant\.stock_quantity/)
+})
+
 test('product images retain admin-only write policies and public viewing', () => {
   assert.match(schema, /alter table public\.product_images enable row level security/i)
   assert.match(schema, /admins manage product images[\s\S]*?public\.is_admin\(\)/i)

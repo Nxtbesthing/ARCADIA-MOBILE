@@ -394,7 +394,14 @@ function renderInventory(container, state) {
     </section>
     ${categoryNotice}
     <section class="si-section" data-si-section="products" ${activeSection === 'products' ? '' : 'hidden'} aria-labelledby="si-product-title">
-      <h2 id="si-product-title">${categoryOptions ? 'Product Listing' : 'Inventory form unavailable'}</h2>
+      <div class="si-section-heading">
+        <h2 id="si-product-title">${categoryOptions ? 'Product Listing' : 'Inventory form unavailable'}</h2>
+        <button class="secondary-btn" type="button" data-si-refresh>REFRESH INVENTORY</button>
+      </div>
+      <div class="admin-table-wrap"><table class="admin-table si-table">
+        <thead><tr><th>Product</th><th>Category</th><th>Variant</th><th>SKU</th><th>Price / discount</th><th>Stock</th><th>Condition</th><th>Warranty</th><th>Visibility</th><th>Images</th><th>Actions</th></tr></thead>
+        <tbody>${inventoryRows}</tbody>
+      </table></div>
       <form class="si-form si-product-form" data-si-product-form>
         <input type="hidden" name="product_id" />
         <input type="hidden" name="variant_id" />
