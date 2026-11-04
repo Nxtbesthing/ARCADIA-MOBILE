@@ -78,6 +78,11 @@ test('image ordering migration is a single admin-authorized transaction scoped t
   assert.match(admin, /variant\.availability === 'out_of_stock' \? 'Out of Stock'/)
 })
 
+test('variant image warning callback is initialized before event registration', () => {
+  assert.match(admin, /function updateVariantImageWarning\(\)/)
+  assert.doesNotMatch(admin, /const updateVariantImageWarning\s*=/)
+})
+
 test('image ordering rejects incomplete image lists before any update', () => {
   assert.match(imageOrderingMigration, /FROM public\.products[\s\S]*?FOR UPDATE/)
   assert.match(imageOrderingMigration, /FROM public\.product_variants[\s\S]*?FOR UPDATE/)

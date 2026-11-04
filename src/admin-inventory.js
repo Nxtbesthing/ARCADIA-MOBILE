@@ -621,7 +621,7 @@ function bindInventory(container, state, lookups) {
   const setImageMessage = (message, isError = false) => {
     renderMessage(container, message, isError)
   }
-  const updateVariantImageWarning = () => {
+  function updateVariantImageWarning() {
     const nextDetails = {
       storageOptionId: storage.value,
       colorName: color.value
